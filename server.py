@@ -519,22 +519,25 @@ def run_project_endpoint(name):
         
         # Extract URL
         import re
-        url_match = re.search(r'https?://(?:localhost|0\.0\.0\.0|127\.0\.0\.1):\d+(?:/[a-zA-Z0-9_./-]+)?', result)
+        url_match = re.search(r'https?://(?:localhost|0\.0\.0\.0|127\.0\.0\.1):\d+(?:/[a-zA-Z0-9_./-]*)?', result)
         url = url_match.group(0) if url_match else None
+        
+        print(f"DEBUG PREVIEW: Extracted URL: {url} from result: {result[:100]}...")
         
         # If running on Render/Production, proxy to Workspace Static Serving if it's a localhost link
         if url and ("localhost" in url or "0.0.0.0" in url or "127.0.0.1" in url):
-             # Extract the path/filename from the localhost URL (e.g. /Task3.html)
              path_part = ""
-             import re
-             path_match = re.search(r':\d+(/[a-zA-Z0-9_./-]*)$', url)
+             # Match everything after the port
+             path_match = re.search(r':\d+([a-zA-Z0-9_./-]*)$', url)
              if path_match:
                  path_part = path_match.group(1)
              
              if not path_part or path_part == "/":
                  path_part = "/index.html"
-                 
+             
+             # Relative path already has a leading slash if any
              url = f"/api/workspace/{user_id}/{name}{path_part}"
+             print(f"DEBUG PREVIEW: Render fallback URL: {url}")
             
         return jsonify({"status": "launched", "result": result, "url": url})
     except Exception as e:
