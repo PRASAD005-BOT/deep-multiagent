@@ -35,9 +35,16 @@ def ensure_profile(user_id: str, email: str = None, full_name: str = None):
 
 # ── Projects ────────────────────────────────────────────────
 def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
-    if not supabase: return []
-    res = supabase.table("projects").select("*").eq("user_id", user_id).execute()
-    return res.data
+    if not supabase: 
+        print("DEBUG DB: Supabase not initialized in get_user_projects")
+        return []
+    try:
+        res = supabase.table("projects").select("*").eq("user_id", user_id).execute()
+        print(f"DEBUG DB: Fetched {len(res.data)} projects for {user_id}")
+        return res.data
+    except Exception as e:
+        print(f"DEBUG DB: Error fetching projects: {str(e)}")
+        return []
 
 def upsert_project(user_id: str, name: str, details: Dict[str, Any]):
     if not supabase: 

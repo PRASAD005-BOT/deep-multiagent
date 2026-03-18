@@ -362,38 +362,36 @@ def upload_project_endpoint():
 def projects():
     try:
         user_id   = request.user.id
-        print(f"DEBUG PROJECTS: Fetching projects for user {user_id}")
-        mem       = {p["name"]: p for p in db.get_user_projects(user_id)}
-        workspace = get_workspace()
-        print(f"DEBUG PROJECTS: Workspace path is {workspace}")
-        result    = []
+        db_projects = db.get_user_projects(user_id)
+        db_map = {p["name"]: p for p in db_projects}
         
+        workspace = get_workspace()
         if not workspace.exists():
             workspace.mkdir(parents=True, exist_ok=True)
 
-        for d in sorted(workspace.iterdir()):
-            if not d.is_dir():
-                continue
+        # Get all unique project names from both DB and Disk
+        disk_names = {d.name for d in workspace.iterdir() if d.is_dir()}
+        all_names = sorted(list(set(db_map.keys()) | disk_names))
+        
+        result = []
+        for name in all_names:
+            disk_path = workspace / name
+            file_count = count_project_files(disk_path) if disk_path.exists() else 0
             
-            file_count = count_project_files(d)
-            print(f"DEBUG: Project {d.name} has {file_count} files")
-            
-            mem_data = mem.get(d.name, {})
+            mem_data = db_map.get(name, {})
             result.append({
-                "name":      d.name,
+                "name":      name,
                 "files":     file_count,
                 "stack":     mem_data.get("stack", "unknown"),
-                "status":    mem_data.get("status", "built"),
+                "status":    mem_data.get("status", "built" if disk_path.exists() else "db-only"),
                 "built_at":  mem_data.get("built_at", ""),
                 "desc":      (mem_data.get("desc") or mem_data.get("description") or "")[:80],
             })
 
-        print(f"DEBUG PROJECTS: Returning {len(result)} projects")
+        print(f"DEBUG PROJECTS: Returning {len(result)} projects for user {user_id}")
         return jsonify(result)
     except Exception as e:
         print(f"DEBUG PROJECTS Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -507,10 +505,17 @@ def run_project_endpoint(name):
         
         # If running on Render/Production, proxy to Workspace Static Serving if it's a localhost link
         if url and ("localhost" in url or "0.0.0.0" in url or "127.0.0.1" in url):
-             # Try to serve directly via /api/workspace for HTML/Static apps
-             # Note: This is an optimistic fallback for Render where only port 10000 is open
-             # We assume if it's local, we can just point the iframe to the static server
-             url = f"/api/workspace/{user_id}/{name}/index.html"
+             # Extract the path/filename from the localhost URL (e.g. /Task3.html)
+             path_part = ""
+             import re
+             path_match = re.search(r':\d+(/[a-zA-Z0-9_./-]*)$', url)
+             if path_match:
+                 path_part = path_match.group(1)
+             
+             if not path_part or path_part == "/":
+                 path_part = "/index.html"
+                 
+             url = f"/api/workspace/{user_id}/{name}{path_part}"
             
         return jsonify({"status": "launched", "result": result, "url": url})
     except Exception as e:
@@ -726,30 +731,36 @@ def upload_avatar():
         print(f"DEBUG PROFILE Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/profile/avatar/<uid>/<filename>")
-def get_avatar(uid, filename):
+@app.route("/api/profile/avatar/<user_id>/<filename>")
+def serve_avatar(user_id, filename):
     try:
         from flask import send_from_directory
-        avatar_dir = Path("workspace").resolve() / "profiles" / uid
-        print(f"DEBUG PROFILE: Serving avatar from {avatar_dir}/{filename}")
-        return send_from_directory(str(avatar_dir), filename)
+        # Resolve path within workspace
+        avatar_path = get_workspace().parent / "profiles" / user_id / filename
+        
+        if not avatar_path.exists():
+            # Return a default fallback if not found
+            return jsonify({"error": "not found"}), 404
+            
+        return send_from_directory(str(avatar_path.parent), filename)
     except Exception as e:
-        print(f"DEBUG PROFILE: Error serving avatar: {str(e)}")
-        return "Not found", 404
+        return jsonify({"error": "not found"}), 404
 
 @app.route("/api/workspace/<uid>/<pname>/<path:filename>")
 def serve_workspace_file(uid, pname, filename):
     try:
         from flask import send_from_directory
-        # Security: Resolve absolute paths to prevent traversal
-        workspace_dir = get_workspace().parent # This is c:\...\workspace
-        project_dir = (workspace_dir / uid / pname).resolve()
+        # Use absolute path relative to server.py
+        base_dir = Path(__file__).parent.resolve()
+        project_dir = (base_dir / "workspace" / uid / pname).resolve()
         
         if not project_dir.exists():
-            return "Project not found", 404
+            print(f"DEBUG WORKSPACE: Project dir not found at {project_dir}")
+            return f"Project not found at {project_dir}", 404
             
         return send_from_directory(str(project_dir), filename)
     except Exception as e:
+        print(f"DEBUG WORKSPACE Error: {str(e)}")
         return str(e), 500
 
 if __name__ == "__main__":
