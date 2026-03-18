@@ -342,12 +342,15 @@ def upload_project_endpoint():
             target_path.parent.mkdir(parents=True, exist_ok=True)
             file.save(str(target_path))
             
-        # Register in DB
+        # Register in DB with paths relative to the project folder (strip the project name prefix)
         print(f"DEBUG UPLOAD: Registering project '{project_name}' in DB for user {user_id}")
+        stripped_paths = [p.split('/', 1)[1] if '/' in p else "" for p in paths]
+        stripped_paths = [p for p in stripped_paths if p] # Remove empty results (the folder itself)
+        
         db.upsert_project(user_id, project_name, {
             "stack": "uploaded",
             "desc": "Manually uploaded project",
-            "files": paths
+            "files": stripped_paths
         })
             
         return jsonify({"success": True, "project": project_name})

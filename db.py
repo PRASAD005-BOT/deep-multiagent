@@ -61,6 +61,7 @@ def upsert_project(user_id: str, name: str, details: Dict[str, Any]):
         "last_modified": datetime.now().isoformat()
     }
     print(f"DEBUG DB: Upserting project '{name}' for user {user_id}")
+    print(f"DEBUG DB: Final Data: {data}")
     try:
         res = supabase.table("projects").upsert(data, on_conflict="user_id, name").execute()
         print(f"DEBUG DB: Upsert successful. Data: {res.data}")
