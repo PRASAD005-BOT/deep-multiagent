@@ -226,7 +226,8 @@ def run_agent_streaming(task: str, model_key: str,
 
         try:
             if project_name:
-                folder = WORKSPACE / project_name
+                # Use get_workspace() to ensure we are in the user-specific folder
+                folder = get_workspace() / project_name
                 files  = get_relative_files(folder) if folder.exists() else []
 
                 stack = "unknown"
@@ -396,6 +397,24 @@ def projects():
 
 
 
+
+@app.route("/api/projects/<name>", methods=["DELETE"])
+@auth_required
+def delete_project_endpoint(name):
+    user_id = request.user.id
+    try:
+        # 1. Delete from DB
+        db.delete_project_memory(user_id, name)
+        
+        # 2. Delete from disk
+        import shutil
+        project_dir = get_workspace() / name
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+            
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/projects/<name>/files")
 @auth_required
@@ -735,16 +754,20 @@ def upload_avatar():
 def serve_avatar(user_id, filename):
     try:
         from flask import send_from_directory
-        # Resolve path within workspace
-        avatar_path = get_workspace().parent / "profiles" / user_id / filename
+        # Use absolute path relative to server.py
+        base_dir = Path(__file__).parent.resolve()
+        avatar_path = (base_dir / "workspace" / "profiles" / user_id / filename).resolve()
         
         if not avatar_path.exists():
-            # Return a default fallback if not found
-            return jsonify({"error": "not found"}), 404
+            # Return a default UI avatar if missing
+            return Response(
+                f'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="#1C1E22"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="40" fill="#7C6AF7">{user_id[:1].upper()}</text></svg>',
+                mimetype="image/svg+xml"
+            )
             
         return send_from_directory(str(avatar_path.parent), filename)
     except Exception as e:
-        return jsonify({"error": "not found"}), 404
+        return "Not found", 404
 
 @app.route("/api/workspace/<uid>/<pname>/<path:filename>")
 def serve_workspace_file(uid, pname, filename):
