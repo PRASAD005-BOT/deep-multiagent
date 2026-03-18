@@ -1,0 +1,31 @@
+services:
+  # 🐍 Backend Service (Flask + Agents + MCP)
+  - type: web
+    name: devagent-backend
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: Dockerfile
+    plan: starter # Needs 'starter' for Persistent Disks
+    region: oregon
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: 1
+      - key: MCP_PORT
+        value: 8889
+    disk:
+      name: agent-storage
+      mountPath: /app/workspace
+      sizeGB: 1
+
+  # ⚛️ Frontend Service (React UI)
+  - type: web
+    name: devagent-ui
+    runtime: docker
+    dockerContext: .
+    dockerfilePath: frontend.Dockerfile
+    plan: starter
+    region: oregon
+    envVars:
+      - key: VITE_API_BASEURL
+        value: https://devagent-backend-95j7.onrender.com
+    autoDeploy: true

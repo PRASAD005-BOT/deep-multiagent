@@ -1,0 +1,32 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    ports:
+      - "8888:8888"
+      - "8889:8889"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/venv
+      - workspace_data:/app/workspace
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MCP_PORT=8889
+    restart: always
+
+  frontend:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE=http://localhost:8888
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  workspace_data:

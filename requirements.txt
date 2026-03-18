@@ -1,0 +1,11 @@
+flask
+flask-cors
+python-dotenv
+langchain
+langchain-openai
+langchain-community
+requests
+fal-client
+deepagents==0.4.11
+supabase
+PyJWT

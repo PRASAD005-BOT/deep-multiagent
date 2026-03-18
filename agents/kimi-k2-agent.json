@@ -1,0 +1,16 @@
+{
+  "name": "kimi-k2-dev",
+  "description": "AI coding agent using OpenRouter Kimi K2",
+  "model": {
+    "provider": "openai",
+    "model": "moonshotai/kimi-k2",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "apiKey": "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"
+  },
+  "tools": [
+    "codebase",
+    "editFiles",
+    "terminal",
+    "search"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "projects": {
+    "devlop": {
+      "name": "devlop",
+      "stack": "nodejs",
+      "desc": "A new project.",
+      "status": "initializing",
+      "built_at": "2026-03-18 17:54",
+      "last_modified": "2026-03-18"
+    },
+    "dev-wiki": {
+      "name": "dev-wiki",
+      "stack": "html",
+      "desc": "Simple Wikipedia-style website about development importance",
+      "status": "initializing",
+      "built_at": "2026-03-18 17:55",
+      "last_modified": "2026-03-18"
+    }
+  },
+  "conversations": {
+    "43a5e06a-1900-4eb7-bc54-04895f85c237": {
+      "title": "Create a new project named dev...",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Create a new project named devlop",
+          "image": null,
+          "timestamp": "2026-03-18 12:21:33.087051"
+        },
+        {
+          "role": "user",
+          "content": "hi",
+          "image": null,
+          "timestamp": "2026-03-18 12:31:47.222091"
+        },
+        {
+          "role": "user",
+          "content": "hi",
+          "image": null,
+          "timestamp": "2026-03-18 12:33:56.435868"
+        },
+        {
+          "role": "user",
+          "content": "Launch and run the project dev-wiki",
+          "image": null,
+          "timestamp": "2026-03-18 18:03:46.517161"
+        },
+        {
+          "role": "assistant",
+          "content": " The **dev-wiki** project is now running at **http://localhost:8081** 🚀",
+          "image": null,
+          "timestamp": "2026-03-18 18:03:52.980799"
+        }
+      ],
+      "updated_at": "2026-03-18 18:03:52.980799"
+    }
+  },
+  "preferences": {},
+  "error_history": [],
+  "stats": {
+    "total_builds": 2,
+    "total_fixes": 0,
+    "total_tokens": 0,
+    "first_used": "2026-03-18",
+    "last_used": "2026-03-18"
+  }
+}
