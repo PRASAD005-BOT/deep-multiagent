@@ -9,8 +9,8 @@ current_user_id: ContextVar[str] = ContextVar("current_user_id", default="")
 
 load_dotenv()
 
-URL = os.environ.get("VITE_SUPABASE_URL")
-KEY = os.environ.get("VITE_SUPABASE_ANON_KEY")
+URL = os.environ.get("VITE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+KEY = os.environ.get("VITE_SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 
 if not URL or not KEY:
     print("❌ ERROR: Supabase credentials missing in .env")

@@ -500,12 +500,17 @@ def run_project_endpoint(name):
         # and ask it to run the project.
         result = run_agent(f"Launch and run the project {name}", project_name=name)
         
-        # Extract URL for live preview iframe
+        # Extract URL
         import re
-        url_match = re.search(r'https?://(?:localhost|0\.0\.0\.0):\d+(?:/[a-zA-Z0-9_./-]+)?', result)
+        url_match = re.search(r'https?://(?:localhost|0\.0\.0\.0|127\.0\.0\.1):\d+(?:/[a-zA-Z0-9_./-]+)?', result)
         url = url_match.group(0) if url_match else None
-        if url and "0.0.0.0" in url:
-            url = url.replace("0.0.0.0", "localhost")
+        
+        # If running on Render/Production, proxy to Workspace Static Serving if it's a localhost link
+        if url and ("localhost" in url or "0.0.0.0" in url or "127.0.0.1" in url):
+             # Try to serve directly via /api/workspace for HTML/Static apps
+             # Note: This is an optimistic fallback for Render where only port 10000 is open
+             # We assume if it's local, we can just point the iframe to the static server
+             url = f"/api/workspace/{user_id}/{name}/index.html"
             
         return jsonify({"status": "launched", "result": result, "url": url})
     except Exception as e:
@@ -731,6 +736,21 @@ def get_avatar(uid, filename):
     except Exception as e:
         print(f"DEBUG PROFILE: Error serving avatar: {str(e)}")
         return "Not found", 404
+
+@app.route("/api/workspace/<uid>/<pname>/<path:filename>")
+def serve_workspace_file(uid, pname, filename):
+    try:
+        from flask import send_from_directory
+        # Security: Resolve absolute paths to prevent traversal
+        workspace_dir = get_workspace().parent # This is c:\...\workspace
+        project_dir = (workspace_dir / uid / pname).resolve()
+        
+        if not project_dir.exists():
+            return "Project not found", 404
+            
+        return send_from_directory(str(project_dir), filename)
+    except Exception as e:
+        return str(e), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

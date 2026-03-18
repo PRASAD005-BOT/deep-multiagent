@@ -4,7 +4,7 @@ import { supabase } from './lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const API_BASE =
-  import.meta.env.VITE_APIBASE ||
+  import.meta.env.VITE_API_BASEURL ||
   "https://devagent-backend-95j7.onrender.com";
 
 const SettingsPanel = ({ isMobile }) => {

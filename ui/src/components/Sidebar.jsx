@@ -93,7 +93,7 @@ function SidebarContent({
   chats = [], activeChatId, onSwitchChat, onNewChat, onDeleteChat
 }) {
   const [profile, setProfile] = useState(null)
-  const API_BASE = import.meta.env.VITE_APIBASE || "http://localhost:10000";
+  const API_BASE = import.meta.env.VITE_API_BASEURL || "http://localhost:10000";
 
   useEffect(() => {
     if (user && supabase) {
