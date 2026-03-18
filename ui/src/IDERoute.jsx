@@ -119,8 +119,13 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
     setLaunching(true)
     try {
       const r = await axios.post(`${API}/projects/${encodeURIComponent(project)}/run`)
-      const url = r.data.url || r.data.result.match(/https?:\/\/localhost:\d+/)?.[0]
+      let url = r.data.url || r.data.result.match(/https?:\/\/localhost:\d+/)?.[0]
       if (url) {
+        // If it's a relative API path, prepend the base domain
+        if (url.startsWith('/api/workspace')) {
+          const base = API.replace(/\/api$/, '');
+          url = `${base}${url}`;
+        }
         setPreviewUrl(url)
         setShowPreview(true)
         setShowConsole(true)
