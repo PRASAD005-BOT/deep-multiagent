@@ -52,10 +52,12 @@ export default function App() {
   const addNotification = useCallback((message, type = 'info') => {
     const id = uuidv4()
     setNotifications(prev => [...prev, { id, message, type }])
+    const timeout = type === 'error' ? 10000 : 5000
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id))
-    }, 5000)
+    }, timeout)
   }, [])
+
   const [messages, setMessages] = useState([{
     role: 'assistant',
     text: "DevAgent Online. Awaiting architecture instructions.",
@@ -370,12 +372,10 @@ export default function App() {
               <ProjectsPanel
                 projects={projects}
                 onRefresh={loadProjects}
-                onLaunch={(name) => {
-                  setSelectedProject(name)
-                }}
                 onExplore={(name) => {
                   setSelectedProject(name)
                 }}
+
                 onNotify={addNotification}
                 isMobile={isMobile}
                 API={API}
@@ -395,8 +395,10 @@ export default function App() {
                   messages={messages}
                   streaming={streaming}
                   onSend={sendMessage}
+                  onNotify={addNotification}
                   isMobile={isMobile}
                 />
+
               </div>
             )}
             {view === 'settings' && (
@@ -438,7 +440,7 @@ export default function App() {
                 </div>
                 <div className="flex-1">
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-30 mb-0.5">{n.type}</p>
-                  <p className="text-[13px] font-medium tracking-tight leading-snug">{n.message}</p>
+                  <p className="text-[13px] font-medium tracking-tight leading-snug whitespace-pre-wrap">{n.message}</p>
                 </div>
                 <button
                   onClick={() => setNotifications(prev => prev.filter(nn => nn.id !== n.id))}

@@ -14,7 +14,7 @@ const TOOL_META = {
   file:     { icon: FileIcon,    color: '#7C6AF7', label: 'Writing' },
   eye:      { icon: EyeIcon,     color: '#4285F4', label: 'Reading' },
   terminal: { icon: TermIcon,    color: '#3ECF8E', label: 'Exec' },
-  play:     { icon: PlayIcon,    color: '#3ECF8E', label: 'Launch' },
+  play:     { icon: PlayIcon,    color: '#3ECF8E', label: 'Run' },
   package:  { icon: PkgIcon,     color: '#E8831A', label: 'Install' },
   wrench:   { icon: WrenchIcon,  color: '#EF4444', label: 'Fix' },
   check:    { icon: CheckIcon,   color: '#10B981', label: 'Plan' },

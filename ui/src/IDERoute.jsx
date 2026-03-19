@@ -12,11 +12,11 @@ function ExternalLink({ size = 16, className="" }) { return <svg width={size} he
 function DownloadIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> }
 function TerminalIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> }
 
-export default function IDERoute({ project, onBack, API, models, messages, streaming, onSend, isMobile }) {
+export default function IDERoute({ project, onBack, API, models, messages, streaming, onSend, onNotify, isMobile }) {
   const [files, setFiles] = useState([])
   const [fileContent, setFileContent] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [launching, setLaunching] = useState(false)
+  const [isRunning, setIsRunning] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [activeTab, setActiveTab] = useState(isMobile ? 'explorer' : 'chat')
   const [previewUrl, setPreviewUrl] = useState(null)
@@ -77,7 +77,7 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
       })
       setFileContent({ ...fileContent, original: fileContent.content })
     } catch (e) {
-      alert("Failed to save: " + e.message)
+      onNotify("Failed to save: " + e.message, 'error')
     }
     setSaving(false)
   }
@@ -95,7 +95,7 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
       if (fileContent?.path === path) setFileContent(null)
       loadFiles(project)
     } catch (e) {
-      alert("Failed to delete: " + e.message)
+      onNotify("Failed to delete: " + e.message, 'error')
     }
   }
 
@@ -113,15 +113,24 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
       loadFiles(project)
       openFile(newFilePath)
     } catch (err) {
-      alert("Failed to create file: " + err.message)
+      onNotify("Failed to create file: " + err.message, 'error')
     }
   }
 
-  const launchProject = async () => {
-    setLaunching(true)
+  const runProject = async () => {
+    setIsRunning(true)
     try {
       const r = await axios.post(`${API}/projects/${encodeURIComponent(project)}/run`)
-      let url = r.data.url || r.data.result.match(/https?:\/\/localhost:\d+/)?.[0]
+      
+      if (r.data.status === 'error') {
+        const err = r.data.result || "Build failed";
+        onNotify(err, 'error');
+        setIsRunning(false)
+        return
+      }
+
+
+      let url = r.data.url || r.data.result?.match(/https?:\/\/localhost:\d+/)?.[0]
       if (url) {
         // If it's a relative API path, prepend the base domain
         if (url.startsWith('/api/workspace')) {
@@ -133,9 +142,9 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
         setShowConsole(true)
       }
     } catch (e) {
-      alert("Failed to launch: " + e.message)
+      onNotify("Failed to run: " + e.message, 'error')
     }
-    setLaunching(false)
+    setIsRunning(false)
   }
 
   const downloadProject = async () => {
@@ -297,16 +306,16 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
 
           <div className="flex-1 flex items-center justify-center gap-4">
             <button 
-              onClick={launchProject} 
-              disabled={launching}
+              onClick={runProject} 
+              disabled={isRunning}
               className={`px-8 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 shadow-xl ${
-                launching 
+                isRunning 
                 ? 'bg-white/5 text-white/20 cursor-not-allowed' 
                 : 'bg-[#3ECF8E] text-black hover:bg-[#36B67C] hover:scale-105 active:scale-95 shadow-[#3ECF8E]/20'
               }`}
             >
-              {launching ? <Spinner /> : <RocketIcon size={16} />}
-              {launching ? 'Powering up...' : 'Run'}
+              {isRunning ? <Spinner /> : <RocketIcon size={16} />}
+              {isRunning ? 'Previewing...' : 'Preview'}
             </button>
 
             <button 
@@ -483,7 +492,7 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
                         <div className="p-4 font-mono text-[11px] text-[#3ECF8E]/80 overflow-y-auto h-38">
                           <div className="flex gap-2">
                              <span className="text-[#7C6AF7]">$</span>
-                             <span>{launching ? 'Initializing environment...' : 'Environment ready. Listening on port...'}</span>
+                             <span>{isRunning ? 'Initializing environment...' : 'Environment ready. Listening on port...'}</span>
                           </div>
                           <div className="mt-1 opacity-50"># Real-time logs will appear here</div>
                         </div>
@@ -510,12 +519,12 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
               </div>
               <div className="flex items-center gap-4">
                  <button 
-                  onClick={launchProject}
-                  disabled={launching}
+                  onClick={runProject}
+                  disabled={isRunning}
                   className="px-8 py-4 bg-accent/10 hover:bg-accent/20 border border-accent/20 rounded-2xl text-accent text-[11px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
                  >
-                  {launching ? <Spinner /> : <RocketIcon size={16} />}
-                  {launching ? 'Powering up...' : 'Run Environment'}
+                  {isRunning ? <Spinner /> : <RocketIcon size={16} />}
+                  {isRunning ? 'Previewing...' : 'Preview Environment'}
                  </button>
               </div>
             </div>

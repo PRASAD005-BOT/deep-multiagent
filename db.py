@@ -78,9 +78,14 @@ def update_project(user_id: str, name: str, data: Dict[str, Any]):
     if not supabase: return
     supabase.table("projects").update(data).eq("user_id", user_id).eq("name", name).execute()
 
-def delete_project_memory(user_id: str, name: str):
+def delete_project(user_id: str, name: str):
     if not supabase: return
-    supabase.table("projects").delete().eq("user_id", user_id).eq("name", name).execute()
+    try:
+        supabase.table("projects").delete().eq("user_id", user_id).eq("name", name).execute()
+        print(f"DEBUG DB: Deleted project '{name}' for user {user_id}")
+    except Exception as e:
+        print(f"DEBUG DB: Error deleting project: {str(e)}")
+        raise e
 
 # ── Chats & Messages ────────────────────────────────────────
 def list_user_chats(user_id: str) -> List[Dict[str, Any]]:

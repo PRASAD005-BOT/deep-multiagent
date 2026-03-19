@@ -3,7 +3,7 @@ import axios from 'axios'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 
-export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore, isMobile, API, onSend, onNotify }) {
+export default function ProjectsPanel({ projects, onRefresh, onExplore, isMobile, API, onSend, onNotify }) {
   const fileInputRef = useRef(null)
   const [showInitModal, setShowInitModal] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
@@ -125,7 +125,6 @@ export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore
               key={p.name} 
               project={p} 
               delay={i * 0.05} 
-              onLaunch={onLaunch} 
               onExplore={onExplore} 
               onDelete={(name) => setDeletingProject(name)}
               onDownload={handleDownload}
@@ -251,7 +250,7 @@ export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore
   )
 }
 
-function ProjectCard({ project, delay, onLaunch, onExplore, onDelete, onDownload }) {
+function ProjectCard({ project, delay, onExplore, onDelete, onDownload }) {
   const STACK_ICONS = {
     'react-vite': '⚛️', 'vue': '🖖', 'nodejs': '🟢', 'html': '🌐', 'flask/fastapi': '🐍'
   }
@@ -302,18 +301,10 @@ function ProjectCard({ project, delay, onLaunch, onExplore, onDelete, onDownload
         
         <div className="flex gap-2">
           <button 
-            onClick={(e) => { e.stopPropagation(); onLaunch(project.name); }}
+            onClick={(e) => { e.stopPropagation(); onExplore(project.name); }}
             className="flex-1 bg-white text-black text-[10px] font-black uppercase tracking-widest h-12 rounded-xl transition-all shadow-xl hover:bg-white/90 active:scale-95 flex items-center justify-center gap-2"
           >
-            Launch
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
-          </button>
-          
-          <button 
-            onClick={(e) => { e.stopPropagation(); onExplore(project.name); }}
-            className="w-12 h-12 bg-white/[0.04] border border-white/[0.08] rounded-xl flex items-center justify-center text-white/30 hover:text-white hover:bg-accent/20 hover:border-accent/40 transition-all active:scale-95"
-            title="Open Editor"
-          >
+            Explore
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
           </button>
 

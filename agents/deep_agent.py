@@ -34,6 +34,347 @@ def get_workspace() -> Path:
 
 WORKSPACE = BASE_WORKSPACE # Default to base, routes should use get_workspace() or WORKSPACE / user_id
 
+
+
+# ── Structured Build Error Analyzer ───────────────────────
+def analyze_build_error(raw_logs: str, project_type: str = "unknown") -> dict:
+    """
+    Parse raw build logs and return a structured, user-friendly error report.
+    Returns: {"reason": str, "location": str, "fix": str, "error_type": str, "formatted": str}
+    """
+    import re
+    lines = raw_logs.strip().split("\n")
+    reason = "Unknown build error"
+    location = "Unknown"
+    fix = "Check the build logs for details"
+    error_type = "Build Error"
+
+    # ── Pattern matching for common errors ─────────────
+    for line in lines:
+        line_stripped = line.strip()
+
+        # 1. Module not found / import errors
+        m = re.search(r"Could not resolve ['\"]([^'\"]+)['\"]", line_stripped)
+        if not m:
+            m = re.search(r"Module not found.*['\"]([^'\"]+)['\"]", line_stripped)
+        if m:
+            missing = m.group(1)
+            reason = f"Missing module or file: {missing}"
+            error_type = "Import Error"
+            if missing.startswith("."):
+                fix = f"Create the missing file '{missing}' or fix the import path"
+            else:
+                fix = f"Run 'npm install {missing}' to install the missing package"
+            break
+
+        # 2. File location (src/App.jsx:10:5)
+        loc_m = re.search(r"(src/[^\s:]+(?::\d+(?::\d+)?))", line_stripped)
+        if loc_m:
+            location = loc_m.group(1)
+
+        # 3. Syntax errors
+        if "SyntaxError" in line_stripped or "Unexpected token" in line_stripped:
+            reason = f"Syntax error in code"
+            error_type = "Syntax Error"
+            fix = f"Fix the syntax at {location}"
+            break
+
+        # 4. Dependency errors
+        if "ERESOLVE" in line_stripped or "peer dep" in line_stripped.lower():
+            reason = "Dependency conflict between packages"
+            error_type = "Dependency Error"
+            fix = "Run 'npm install --legacy-peer-deps' or update conflicting packages"
+            break
+
+        if "npm ERR! missing script" in line_stripped.lower():
+            m2 = re.search(r'missing script:\s*(\S+)', line_stripped, re.IGNORECASE)
+            script = m2.group(1) if m2 else "build"
+            reason = f"Missing npm script: '{script}'"
+            error_type = "Build Config Error"
+            fix = f"Add a '{script}' script to package.json"
+            break
+
+        # 5. TypeScript errors
+        if "TS" in line_stripped and re.search(r"TS\d{4}:", line_stripped):
+            reason = f"TypeScript error: {line_stripped[:150]}"
+            error_type = "Type Error"
+            fix = f"Fix the TypeScript error at {location}"
+            break
+
+        # 6. Vite-specific errors
+        if "[vite]" in line_stripped.lower():
+            reason = f"Vite build error: {line_stripped[line_stripped.lower().find('[vite]'):150]}"
+            error_type = "Build Config Error"
+            fix = "Check vite.config.js and ensure all entry points exist"
+            break
+
+        # 7. Permission / file system
+        if "EACCES" in line_stripped or "EPERM" in line_stripped:
+            reason = "File permission denied"
+            error_type = "Runtime Error"
+            fix = "Check file permissions or run with elevated privileges"
+            break
+
+
+    # Build formatted output
+    formatted = (
+        f"[ERR] Build Failed\n\n"
+        f"🔍 Reason: {reason}\n\n"
+        f"📍 Location: {location}\n\n"
+        f"🛠 Fix: {fix}\n\n"
+        f"[AI] Error Type: {error_type}"
+    )
+
+    return {
+        "reason": reason,
+        "location": location,
+        "fix": fix,
+        "error_type": error_type,
+        "formatted": formatted
+    }
+
+
+def build_and_get_entry(project_name: str, user_id: str) -> dict:
+    """
+    Detect project type, build if needed, and return entry info.
+    Returns: {"entry_path": "dist/index.html", "type": "react-vite", "status": "ok"|"error", "message": "..."}
+    All frontend projects are built to static output so they can be served via /api/workspace/.
+    """
+    from db import current_user_id as _cuid
+    _cuid.set(user_id)
+    folder = get_workspace() / project_name
+
+    # Auto-match partial name
+    if not folder.exists():
+        ws = get_workspace()
+        matches = [d for d in ws.iterdir() if d.is_dir() and d.name.startswith(project_name[:6])]
+        if matches:
+            folder = matches[0]
+            project_name = folder.name
+
+    if not folder.exists():
+        return {"entry_path": None, "type": "unknown", "status": "error", "message": f"Project '{project_name}' not found"}
+
+    folder_str = str(folder.resolve())
+
+    def _file_names(path):
+        return [f.name for f in path.rglob("*") if f.is_file() and "node_modules" not in str(f)]
+
+    files = _file_names(folder)
+
+    # -- Detect stack --
+    has_pkg = (folder / "package.json").exists()
+    has_vite_config = (folder / "vite.config.js").exists() or (folder / "vite.config.ts").exists()
+    has_next_config = (folder / "next.config.js").exists() or (folder / "next.config.mjs").exists() or (folder / "next.config.ts").exists()
+    has_app_py = (folder / "app.py").exists()
+    has_manage_py = (folder / "manage.py").exists()
+    has_requirements = (folder / "requirements.txt").exists()
+
+    pkg_text = ""
+    if has_pkg:
+        try:
+            pkg_text = (folder / "package.json").read_text(encoding="utf-8").lower()
+        except Exception:
+            pass
+
+    is_vite = has_vite_config or ("vite" in pkg_text and "react" in pkg_text)
+    is_next = has_next_config or "next" in pkg_text
+    is_node_backend = has_pkg and not is_vite and not is_next and ("express" in pkg_text or "fastify" in pkg_text or '"start"' in pkg_text)
+    is_flask = has_app_py and "flask" in (folder / "app.py").read_text(encoding="utf-8").lower() if has_app_py else False
+    is_django = has_manage_py
+
+    print(f"BUILD: Detected stack for '{project_name}': vite={is_vite} next={is_next} node_backend={is_node_backend} flask={is_flask} django={is_django}")
+
+    # -- 1. VITE / REACT --
+    if is_vite:
+        try:
+            # Inject base: './' into vite.config so assets use relative paths
+            vite_cfg = folder / "vite.config.js"
+            if not vite_cfg.exists():
+                vite_cfg = folder / "vite.config.ts"
+            if vite_cfg.exists():
+                cfg_text = vite_cfg.read_text(encoding="utf-8")
+                if "base:" not in cfg_text and "base :" not in cfg_text:
+                    # Insert base: './' into the defineConfig call
+                    cfg_text = cfg_text.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
+                    vite_cfg.write_text(cfg_text, encoding="utf-8")
+                    print(f"BUILD: Injected base: './' into {vite_cfg.name}")
+
+            # npm install
+            print(f"BUILD: Running npm install in {folder_str}...")
+            r = subprocess.run("npm install", shell=True, cwd=folder_str,
+                               capture_output=True, text=True, timeout=180, creationflags=POPEN_FLAGS)
+            if r.returncode != 0:
+                err_report = analyze_build_error(r.stderr or r.stdout, "react-vite")
+                return {"entry_path": None, "type": "react-vite", "status": "error", "message": err_report["formatted"]}
+
+            # npm run build
+            print(f"BUILD: Running npm run build...")
+            r = subprocess.run("npm run build", shell=True, cwd=folder_str,
+                               capture_output=True, text=True, timeout=120, creationflags=POPEN_FLAGS)
+            if r.returncode != 0:
+                err_report = analyze_build_error(r.stderr or r.stdout, "react-vite")
+                return {"entry_path": None, "type": "react-vite", "status": "error", "message": err_report["formatted"]}
+
+            print(f"BUILD: Build succeeded!")
+
+            # Find entry
+            dist_index = folder / "dist" / "index.html"
+            if dist_index.exists():
+                return {"entry_path": "dist/index.html", "type": "react-vite", "status": "ok", "message": "Built successfully"}
+            else:
+                return {"entry_path": None, "type": "react-vite", "status": "error", "message": "dist/index.html not found after build"}
+
+        except subprocess.TimeoutExpired:
+            return {"entry_path": None, "type": "react-vite", "status": "error", "message": "Build timed out"}
+        except Exception as e:
+            return {"entry_path": None, "type": "react-vite", "status": "error", "message": str(e)}
+
+    # -- 2. NEXT.JS --
+    elif is_next:
+        try:
+            # Configure for static export
+            next_cfg = folder / "next.config.js"
+            if not next_cfg.exists():
+                next_cfg = folder / "next.config.mjs"
+            if next_cfg.exists():
+                cfg_text = next_cfg.read_text(encoding="utf-8")
+                if "output" not in cfg_text:
+                    cfg_text = cfg_text.replace("module.exports = {", "module.exports = {\n  output: 'export',", 1)
+                    cfg_text = cfg_text.replace("export default {", "export default {\n  output: 'export',", 1)
+                    next_cfg.write_text(cfg_text, encoding="utf-8")
+                    print(f"BUILD: Injected output: 'export' into {next_cfg.name}")
+
+            r = subprocess.run("npm install", shell=True, cwd=folder_str,
+                               capture_output=True, text=True, timeout=180, creationflags=POPEN_FLAGS)
+            if r.returncode != 0:
+                err_report = analyze_build_error(r.stderr or r.stdout, "nextjs")
+                return {"entry_path": None, "type": "nextjs", "status": "error", "message": err_report["formatted"]}
+
+            r = subprocess.run("npm run build", shell=True, cwd=folder_str,
+                               capture_output=True, text=True, timeout=180, creationflags=POPEN_FLAGS)
+            if r.returncode != 0:
+                err_report = analyze_build_error(r.stderr or r.stdout, "nextjs")
+                return {"entry_path": None, "type": "nextjs", "status": "error", "message": err_report["formatted"]}
+
+
+            out_index = folder / "out" / "index.html"
+            if out_index.exists():
+                return {"entry_path": "out/index.html", "type": "nextjs", "status": "ok", "message": "Built successfully"}
+            # Fallback to .next/static
+            return {"entry_path": None, "type": "nextjs", "status": "error", "message": "out/index.html not found after build"}
+
+        except Exception as e:
+            return {"entry_path": None, "type": "nextjs", "status": "error", "message": str(e)}
+
+    # -- 3. NODE BACKEND --
+    elif is_node_backend:
+        try:
+            r = subprocess.run("npm install", shell=True, cwd=folder_str,
+                               capture_output=True, text=True, timeout=180, creationflags=POPEN_FLAGS)
+            if r.returncode != 0:
+                err_report = analyze_build_error(r.stderr or r.stdout, "node-backend")
+                return {"entry_path": None, "type": "node-backend", "status": "error", "message": err_report["formatted"]}
+
+
+            import socket
+            port = 3000
+            while port < 3100:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('localhost', port)) != 0:
+                        break
+                port += 1
+
+            start_cmd = f"$env:PORT={port}; npm start" if IS_WINDOWS else f"PORT={port} npm start"
+            subprocess.Popen(
+                ["powershell", "-Command", start_cmd] if IS_WINDOWS else ["/bin/bash", "-c", start_cmd],
+                cwd=folder_str, creationflags=POPEN_FLAGS if IS_WINDOWS else 0
+            )
+            time.sleep(2)
+            return {"entry_path": None, "type": "node-backend", "status": "ok",
+                    "message": f"Server running on port {port}", "port": port}
+
+        except Exception as e:
+            return {"entry_path": None, "type": "node-backend", "status": "error", "message": str(e)}
+
+    # ── 4. FLASK ──────────────────────────────────────────
+    elif is_flask:
+        try:
+            if has_requirements:
+                r = subprocess.run(f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
+                               shell=True, cwd=folder_str, capture_output=True, text=True, creationflags=POPEN_FLAGS)
+                if r.returncode != 0:
+                    err_report = analyze_build_error(r.stderr or r.stdout, "flask")
+                    return {"entry_path": None, "type": "flask", "status": "error", "message": err_report["formatted"]}
+
+
+            import socket
+            port = 5000
+            while port < 5100:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('localhost', port)) != 0:
+                        break
+                port += 1
+
+            start_cmd = f'$env:FLASK_RUN_PORT={port}; "{PYTHON_EXE}" app.py' if IS_WINDOWS else f'FLASK_RUN_PORT={port} "{PYTHON_EXE}" app.py'
+            subprocess.Popen(
+                ["powershell", "-Command", start_cmd] if IS_WINDOWS else ["/bin/bash", "-c", start_cmd],
+                cwd=folder_str, creationflags=POPEN_FLAGS if IS_WINDOWS else 0
+            )
+            time.sleep(2)
+            return {"entry_path": None, "type": "flask", "status": "ok",
+                    "message": f"Flask running on port {port}", "port": port}
+
+        except Exception as e:
+            return {"entry_path": None, "type": "flask", "status": "error", "message": str(e)}
+
+    # ── 5. DJANGO ─────────────────────────────────────────
+    elif is_django:
+        try:
+            if has_requirements:
+                r = subprocess.run(f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
+                               shell=True, cwd=folder_str, capture_output=True, text=True, creationflags=POPEN_FLAGS)
+                if r.returncode != 0:
+                    err_report = analyze_build_error(r.stderr or r.stdout, "django")
+                    return {"entry_path": None, "type": "django", "status": "error", "message": err_report["formatted"]}
+
+            import socket
+            port = 8000
+            while port < 8100:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('localhost', port)) != 0:
+                        break
+                port += 1
+
+            start_cmd = f'"{PYTHON_EXE}" manage.py runserver 0.0.0.0:{port}'
+            subprocess.Popen(
+                ["powershell", "-Command", start_cmd] if IS_WINDOWS else ["/bin/bash", "-c", start_cmd],
+                cwd=folder_str, creationflags=POPEN_FLAGS if IS_WINDOWS else 0
+            )
+            time.sleep(2)
+            return {"entry_path": None, "type": "django", "status": "ok",
+                    "message": f"Django running on port {port}", "port": port}
+
+        except Exception as e:
+            return {"entry_path": None, "type": "django", "status": "error", "message": str(e)}
+
+    # ── 6. STATIC HTML ────────────────────────────────────
+    else:
+        # Find entry HTML
+        html_files = list(folder.rglob("index.html"))
+        if not html_files:
+            html_files = list(folder.rglob("*.html"))
+
+        if html_files:
+            # Prefer index.html closest to root
+            html_files.sort(key=lambda f: len(str(f.relative_to(folder))))
+            best = html_files[0]
+            entry = str(best.relative_to(folder)).replace("\\", "/")
+            return {"entry_path": entry, "type": "static-html", "status": "ok", "message": "Static HTML project"}
+
+        return {"entry_path": None, "type": "unknown", "status": "error",
+                "message": f"No recognizable entry point. Files found: {files[:15]}"}
+
 PYTHON_EXE    = sys.executable.replace("\\", "/")
 # WORKSPACE_ABS = str(BASE_WORKSPACE.resolve()).replace("\\", "/") # Will update this later if needed
 _CURRENT_MODEL_ICON = {"value": "AI"}
@@ -45,9 +386,9 @@ POPEN_FLAGS = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
 SHELL_EXECUTABLE = "powershell" if IS_WINDOWS else "/bin/bash"
 
 
-# ════════════════════════════════════════════════════════════
+# ============================================================
 # CUSTOM TOOLS
-# ════════════════════════════════════════════════════════════
+# ============================================================
 
 @tool
 def create_project(project_name: str, stack: str = "nodejs", desc: str = "A new project.") -> str:
@@ -68,7 +409,7 @@ def create_project(project_name: str, stack: str = "nodejs", desc: str = "A new 
         "built_at": str(datetime.now().strftime("%Y-%m-%d %H:%M"))
     })
     
-    return f"✅ Created: {str(folder.resolve()).replace(chr(92), '/')}"
+    return f"[OK] Created: {str(folder.resolve()).replace(chr(92), '/')}"
 
 
 @tool
@@ -92,7 +433,7 @@ def write_project_file(project_name: str, filename: str, content: str) -> str:
     filepath.parent.mkdir(parents=True, exist_ok=True)
     filepath.write_text(content, encoding="utf-8")
     size = filepath.stat().st_size
-    return f"✅ Written: {filename}  ({size:,} bytes)"
+    return f"[OK] Written: {filename}  ({size:,} bytes)"
 
 
 @tool
@@ -100,7 +441,7 @@ def read_project_file(project_name: str, filename: str) -> str:
     """Read a file from a project folder."""
     filepath = WORKSPACE / project_name / filename
     if not filepath.exists():
-        return f"❌ File not found: {filepath}"
+        return f"[ERR] File not found: {filepath}"
     return filepath.read_text(encoding="utf-8")
 
 
@@ -109,13 +450,13 @@ def list_project_files(project_name: str) -> str:
     """List all files inside a specific project with sizes."""
     folder = get_workspace() / project_name
     if not folder.exists():
-        return f"❌ Project not found: {project_name}"
+        return f"[ERR] Project not found: {project_name}"
     files = sorted([f for f in folder.rglob("*") if f.is_file()])
     if not files:
         return "📭 No files yet."
     lines = []
     for f in files:
-        lines.append(f"  └─ {f.relative_to(folder)}  ({f.stat().st_size:,} bytes)")
+        lines.append(f"  +-- {f.relative_to(folder)}  ({f.stat().st_size:,} bytes)")
     return "\n".join(lines)
 
 
@@ -129,7 +470,7 @@ def list_all_projects() -> str:
     for d in ws.iterdir():
         if d.is_dir():
             count = len([f for f in d.rglob("*") if f.is_file()])
-            lines.append(f"📂 {d.name}  ({count} files)")
+            lines.append(f"[DIR] {d.name}  ({count} files)")
     return "\n".join(lines)
 
 
@@ -148,216 +489,41 @@ def run_shell_command(command: str, project_name: str = "") -> str:
             creationflags=POPEN_FLAGS
         )
         out = (result.stdout or "") + (result.stderr or "")
-        return (out or "✅ Command completed")[:3000]
+        return (out or "[OK] Command completed")[:3000]
     except subprocess.TimeoutExpired:
-        return "⚠️ Command timed out after 120s"
+        return "[WARN] Command timed out after 120s"
     except Exception as e:
-        return f"❌ Error: {e}"
+        return f"[ERR] Error: {e}"
 
 
 @tool
 def run_project(project_name: str) -> str:
     """
-    Auto-detect tech stack and run project in a new PowerShell window.
-    Supports: React/Next.js/Vue/Angular, HTML, FastAPI, Flask,
-              Python scripts, Node.js, Fullstack (client+server).
-    Uses dynamic port allocation to avoid conflicts.
+    Build and run the project using the unified runner.
+    Returns the preview URL or a detailed error report if the build fails.
     """
-    def _run_in_shell(cmd_str: str, cwd_dir: str, background: bool = True, wait_for_ui: int = 0):
-        if IS_WINDOWS:
-            # Windows: Run in background without a visible window
-            full_cmd = ["powershell", "-Command", cmd_str]
-            # Use CREATE_NO_WINDOW to hide the terminal
-            # We don't use -NoExit if we want it to just run in background
-            subprocess.Popen(
-                full_cmd,
-                cwd=cwd_dir,
-                creationflags=POPEN_FLAGS
-            )
-            # Removed the Start-Process logic that opens a separate browser tab
-        else:
-            # Linux/Docker: Run in background and log to stout
-            subprocess.Popen(
-                [SHELL_EXECUTABLE, "-c", cmd_str],
-                cwd=cwd_dir,
-                start_new_session=True
-            )
+    uid = current_user_id.get()
+    if not uid:
+        return "Error: No active user session."
 
-    folder = get_workspace() / project_name
+    print(f"TOOL: Running project '{project_name}' for user {uid}")
+    res = build_and_get_entry(project_name, uid)
 
-    def find_free_port(start_port: int) -> int:
-        import socket
-        port = start_port
-        while port < start_port + 100:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                if s.connect_ex(('localhost', port)) != 0:
-                    return port
-            port += 1
-        return start_port
+    if res["status"] == "error":
+        return f"Build / Run Failed:\n\n{res['message']}"
 
-    # Auto-match partial name
-    if not folder.exists():
-        matches = [d for d in WORKSPACE.iterdir()
-                   if d.is_dir() and d.name.startswith(project_name[:6])]
-        if matches:
-            folder = matches[0]
-
-    if not folder.exists():
-        return f"❌ Project not found: {project_name}"
-
-    folder_str = str(folder.resolve())
-
-    # Helper — all file names flat
-    def get_files(path):
-        return [f.name for f in path.rglob("*")
-                if f.is_file()
-                and "node_modules" not in str(f)]
-
-    files = get_files(folder)
-
-    # ── FULLSTACK: client/ + server/ subfolders ───────────
-    client_dir = folder / "client"
-    server_dir = folder / "server"
-
-    if client_dir.exists() and server_dir.exists():
-        client_str = str(client_dir.resolve())
-        server_str = str(server_dir.resolve())
-
-        # Detect client port
-        client_pkg  = (client_dir / "package.json").read_text(encoding="utf-8").lower() \
-                      if (client_dir / "package.json").exists() else ""
-        base_port   = 5173 if "vite" in client_pkg else 3000
-        port        = find_free_port(base_port)
-        server_port = find_free_port(5000)
-        
-        client_cmd  = f"npm run dev -- --port {port}" if "vite" in client_pkg else f"PORT={port} npm start"
-        url         = f"http://localhost:{port}"
-
-        print(f"\n  🎯 Fullstack project detected (client + server)")
-        print(f"  🔧 Starting server on :{server_port} and client on :{port}")
-
-        print(f"\n  🎯 Fullstack project detected (client + server)")
-        print(f"  🔧 Starting server on :{server_port} and client on :{port}")
-
-        # Start backend
-        _run_in_shell(f"export PORT={server_port}; npm install; node server.js" if not IS_WINDOWS else f"$env:PORT={server_port}; npm install; node server.js", server_str)
-        # Start frontend
-        _run_in_shell(client_cmd, client_str, wait_for_ui=12)
-
-        return f"🚀 Fullstack → client:{url}  server:http://localhost:{server_port}"
-
-    # ── React / Next.js / Vue / Angular / Node ───────────
-    if "package.json" in files:
-        pkg_path = folder / "package.json"
-        if not pkg_path.exists():
-            pkgs = [f for f in folder.rglob("package.json")
-                    if "node_modules" not in str(f)]
-            if pkgs:
-                pkg_path   = pkgs[0]
-                folder_str = str(pkg_path.parent.resolve())
-
-        pkg_text = pkg_path.read_text(encoding="utf-8").lower()
-
-        if "next" in pkg_text:
-            base_port = 3000
-            port  = find_free_port(base_port)
-            cmd   = f"npx next dev -p {port}"
-            label = "Next.js"
-        elif "react" in pkg_text:
-            base_port = 5173 if "vite" in pkg_text else 3000
-            port  = find_free_port(base_port)
-            cmd   = f"npm run dev -- --port {port}" if "vite" in pkg_text else f"$env:PORT={port}; npm start"
-            label = "React (Vite)" if "vite" in pkg_text else "React"
-        elif "vue" in pkg_text:
-            base_port = 5173
-            port  = find_free_port(base_port)
-            cmd   = f"npm run dev -- --port {port}"
-            label = "Vue"
-        elif "angular" in pkg_text or "@angular" in pkg_text:
-            base_port = 4200
-            port  = find_free_port(base_port)
-            cmd   = f"npx ng serve --port {port}"
-            label = "Angular"
-        elif "svelte" in pkg_text:
-            base_port = 5173
-            port  = find_free_port(base_port)
-            cmd   = f"npm run dev -- --port {port}"
-            label = "Svelte"
-        else:
-            base_port = 3000
-            port  = find_free_port(base_port)
-            cmd   = f"$env:PORT={port}; npm start" if '"start"' in pkg_text else f"$env:PORT={port}; node index.js"
-            label = "Node.js"
-
-        url = f"http://localhost:{port}"
-        print(f"\n  📦 {label} project detected")
-        print(f"  🔧 Running on port {port}")
-
-        _run_in_shell(cmd, folder_str, wait_for_ui=10)
-        return f"🚀 {label} → {url}"
-
-    # ── FastAPI / Flask / app.py ──────────────────────────
-    elif "app.py" in files:
-        content = (folder / "app.py").read_text(encoding="utf-8").lower()
-        if "requirements.txt" in files:
-            subprocess.run(
-                f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
-                shell=True, cwd=folder_str, capture_output=True, creationflags=POPEN_FLAGS
-            )
-        if "fastapi" in content:
-            port = find_free_port(8000)
-            _run_in_shell(f"{PYTHON_EXE} -m uvicorn app:app --host 0.0.0.0 --port {port}", folder_str, wait_for_ui=3)
-            return f"🚀 FastAPI → http://localhost:{port}/docs"
-        elif "flask" in content:
-            port = find_free_port(5000)
-            cmd = f"export FLASK_RUN_PORT={port}; {PYTHON_EXE} app.py" if not IS_WINDOWS else f"$env:FLASK_RUN_PORT={port}; {PYTHON_EXE} app.py"
-            _run_in_shell(cmd, folder_str, wait_for_ui=2)
-            return f"🚀 Flask → http://localhost:{port}"
-        else:
-            _run_in_shell(f"{PYTHON_EXE} app.py", folder_str)
-            return "🚀 app.py running"
-    # ── Django manage.py ──────────────────────────────────
-    elif "manage.py" in files:
-        if "requirements.txt" in files:
-            subprocess.run(
-                f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
-                shell=True, cwd=folder_str, capture_output=True, creationflags=POPEN_FLAGS
-            )
-        port = find_free_port(8000)
-        # Use 0.0.0.0 for Django to ensure it's accessible
-        _run_in_shell(f"{PYTHON_EXE} manage.py runserver 0.0.0.0:{port}", folder_str, wait_for_ui=3)
-        return f"🚀 Django → http://localhost:{port}"
-
-    # ── Python main.py ────────────────────────────────────
-    elif "main.py" in files:
-        if "requirements.txt" in files:
-            subprocess.run(
-                f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
-                shell=True, cwd=folder_str, capture_output=True, creationflags=POPEN_FLAGS
-            )
-        _run_in_shell(f"{PYTHON_EXE} main.py", folder_str)
-        return "🚀 main.py running"
-
-    # ── Static HTML ───────────────────────────────────────
+    # Construct the final URL
+    base_url = "http://localhost:10000"
+    
+    if res.get("entry_path"):
+        url = f"{base_url}/api/workspace/{uid}/{project_name}/{res['entry_path']}"
+        return f"Project is ready! \n\nPreview URL: {url}\n\nType: {res['type']}"
+    elif res.get("port"):
+        return f"Backend service started on port {res['port']}! \n\nStatus: {res['message']}"
     else:
-        # Fallback to any HTML file if index.html is not found
-        html_files = list(folder.rglob("index.html"))
-        if not html_files:
-            html_files = list(folder.rglob("*.html"))
-            
-        if html_files:
-            # Use the directory containing the HTML file as the web root
-            html_dir = str(html_files[0].parent.resolve())
-            port = find_free_port(8080)
-            _run_in_shell(f"{PYTHON_EXE} -m http.server {port}", html_dir, wait_for_ui=1)
-            
-            entry_file = html_files[0].name
-            if entry_file == "index.html":
-                return f"🚀 HTML → http://localhost:{port}"
-            else:
-                return f"🚀 HTML → http://localhost:{port}/{entry_file}"
+        url = f"{base_url}/api/workspace/{uid}/{project_name}/index.html"
+        return f"Project is ready! \n\nPreview URL: {url}\n\nType: {res['type']}"
 
-    return f"⚠️ Unknown project type. Files: {files[:10]}"
 
 
 @tool
@@ -379,7 +545,7 @@ def install_dependencies(project_name: str) -> str:
     results    = []
 
     if pkg.exists():
-        print(f"\n  📦 Running npm install in {folder_str}...")
+        print(f"\n  [PKG] Running npm install in {folder_str}...")
         r = subprocess.run(
             "npm install",
             shell=True,
@@ -393,7 +559,7 @@ def install_dependencies(project_name: str) -> str:
         results.append(f"npm: {out}")
 
     if req.exists():
-        print(f"\n  🐍 Running pip install...")
+        print(f"\n  [PY] Running pip install...")
         r = subprocess.run(
             f'"{PYTHON_EXE}" -m pip install -r requirements.txt --break-system-packages',
             shell=True,
@@ -405,7 +571,7 @@ def install_dependencies(project_name: str) -> str:
         out = (r.stdout + r.stderr)[:600]
         results.append(f"pip: {out}")
 
-    return "\n".join(results) if results else "⚠️ No package files found"
+    return "\n".join(results) if results else "[WARN] No package files found"
 
 
 @tool
@@ -416,7 +582,7 @@ def fix_error_in_project(project_name: str, error_message: str) -> str:
     """
     folder = get_workspace() / project_name
     if not folder.exists():
-        return f"❌ Project not found: {project_name}"
+        return f"[ERR] Project not found: {project_name}"
 
     all_files = {}
     for f in folder.rglob("*"):
@@ -451,8 +617,8 @@ def delete_project(project_name: str) -> str:
             db.delete_project_memory(current_user_id.get(), project_name)
         except Exception:
             pass
-        return f"🗑️ Deleted: {project_name}"
-    return f"❌ Not found: {project_name}"
+        return f"[DEL] Deleted: {project_name}"
+    return f"[ERR] Not found: {project_name}"
 
 
 @tool
@@ -498,7 +664,7 @@ def generate_image_with_fal(prompt) -> str:
     api_key = integration.get("api_key")
 
     if not api_key:
-        return "❌ Fal AI API Key not found. Please add it in Settings."
+        return "[ERR] Fal AI API Key not found. Please add it in Settings."
 
     print(f"🎨 Generating image: {prompt_text[:50]}...")
     print(f"🤖 Model: {model_key}")
@@ -520,7 +686,7 @@ def generate_image_with_fal(prompt) -> str:
                 "image_size": image_size
             }
 
-            # ⚠️ Only send steps if model supports it
+            # [WARN] Only send steps if model supports it
             if not any(x in current_model for x in ["schnell", "turbo"]):
                 payload["num_inference_steps"] = max(1, min(steps, 50))
 
@@ -534,24 +700,24 @@ def generate_image_with_fal(prompt) -> str:
                 timeout=60
             )
 
-            print(f"🔍 Tried {current_model} → {response.status_code}")
+            print(f"🔍 Tried {current_model} -> {response.status_code}")
 
             if response.status_code != 200:
-                print(f"⚠️ Failed: {response.text[:150]}")
+                print(f"[WARN] Failed: {response.text[:150]}")
                 continue
 
             data = response.json()
             image_url = data.get("images", [{}])[0].get("url")
 
             if image_url:
-                print(f"✅ Success with {current_model}")
+                print(f"[OK] Success with {current_model}")
                 return image_url
 
         except Exception as e:
-            print(f"❌ Error with {current_model}: {str(e)}")
+            print(f"[ERR] Error with {current_model}: {str(e)}")
             continue
 
-    return "❌ All Fal AI models failed. Try again later."
+    return "[ERR] All Fal AI models failed. Try again later."
 
 
 @tool
@@ -591,12 +757,12 @@ def python_sandbox(code: str) -> str:
         if errors:
             response.append(f"Errors:\n{errors}")
             
-        return "\n".join(response) if response else "✅ Code executed successfully (no output)."
+        return "\n".join(response) if response else "[OK] Code executed successfully (no output)."
         
     except subprocess.TimeoutExpired:
-        return "❌ Sandbox Error: Execution timed out (30s limit)."
+        return "[ERR] Sandbox Error: Execution timed out (30s limit)."
     except Exception as e:
-        return f"❌ Sandbox Error: {str(e)}"
+        return f"[ERR] Sandbox Error: {str(e)}"
     finally:
         if os.path.exists(temp_path):
             try:
@@ -622,8 +788,8 @@ CUSTOM_TOOLS = [
 ]
 
 
-# ── SYSTEM PROMPT ──────────────────────────────────────────
-OS_PATH_HELP = "Windows — use \\ for paths" if IS_WINDOWS else "Linux — use / for paths"
+# -- SYSTEM PROMPT ------------------------------------------
+OS_PATH_HELP = "Windows - use \\ for paths" if IS_WINDOWS else "Linux - use / for paths"
 SYSTEM_PROMPT = f"""You are DevAgent, an autonomous expert AI senior software engineer on {"Windows" if IS_WINDOWS else "Linux (Docker)"}.
 
 ## Environment
@@ -631,48 +797,51 @@ SYSTEM_PROMPT = f"""You are DevAgent, an autonomous expert AI senior software en
 - Python    : {PYTHON_EXE}
 - OS        : {OS_PATH_HELP}
 
-## ⚡ MOST IMPORTANT RULES
-- NEVER stop after planning — execute everything immediately
-- NEVER shorten project names — use EXACT name given by user
+## !! MOST IMPORTANT RULES
+- NEVER stop after planning - execute everything immediately
+- NEVER shorten project names - use EXACT name given by user
 - NEVER wait for user confirmation between steps
 - Keep calling tools one after another until ALL files are written
-- DO NOT stop after write_todos — immediately start executing
+- DO NOT stop after write_todos - immediately start executing
+
 
 ## Supported Tech Stacks
-- React (Vite)    → src/main.jsx + src/App.jsx + index.html + package.json + vite.config.js + tailwind.config.js + postcss.config.js
-- React (CRA)     → src/index.js + src/App.js + public/index.html + package.json
-- Next.js         → pages/index.js + package.json + styles/globals.css
-- Vue 3           → src/main.js + src/App.vue + index.html + package.json + vite.config.js
-- Angular         → src/app/ + angular.json + package.json
-- Svelte          → src/App.svelte + package.json + vite.config.js
-- Node/Express    → index.js + package.json + routes/ + middleware/
-- FastAPI         → app.py + requirements.txt + routers/
-- Flask           → app.py + requirements.txt + templates/ + static/
-- HTML/CSS/JS     → index.html + styles/style.css + js/app.js
+- React (Vite)    -> src/main.jsx + src/App.jsx + index.html + package.json + vite.config.js + tailwind.config.js + postcss.config.js
+- React (CRA)     -> src/index.js + src/App.js + public/index.html + package.json
+- Next.js         -> pages/index.js + package.json + styles/globals.css
+- Vue 3           -> src/main.js + src/App.vue + index.html + package.json + vite.config.js
+- Angular         -> src/app/ + angular.json + package.json
+- Svelte          -> src/App.svelte + package.json + vite.config.js
+- Node/Express    -> index.js + package.json + routes/ + middleware/
+- FastAPI         -> app.py + requirements.txt + routers/
+- Flask           -> app.py + requirements.txt + templates/ + static/
+- HTML/CSS/JS     -> index.html + styles/style.css + js/app.js
 
-## React Icons — ONLY use these verified names
-- react-icons/fa  → FaGithub, FaLinkedin, FaTwitter, FaExternalLinkAlt, FaShoppingCart, FaStar
-- react-icons/hi  → HiMail, HiPhone, HiMenuAlt3, HiX, HiArrowDown, HiSearch
-- react-icons/ai  → AiOutlineSend, AiOutlineGithub, AiOutlineMail
-- react-icons/bi  → BiCart, BiUser, BiSearch, BiHeart
-- NEVER use: HiGithub, HiSend — these DO NOT EXIST
+## React Icons - ONLY use these verified names
+- react-icons/fa  - FaGithub, FaLinkedin, FaTwitter, FaExternalLinkAlt, FaShoppingCart, FaStar
+- react-icons/hi  - HiMail, HiPhone, HiMenuAlt3, HiX, HiArrowDown, HiSearch
+- react-icons/ai  - AiOutlineSend, AiOutlineGithub, AiOutlineMail
+- react-icons/bi  - BiCart, BiUser, BiSearch, BiHeart
+- NEVER use: HiGithub, HiSend - these DO NOT EXIST
 
-## Build Steps — Execute ALL without stopping
+
+## Build Steps - Execute ALL without stopping
 1. create_project(exact_name)
-2. write_project_file → package.json FIRST
-3. write_project_file → all config files
-4. write_project_file → index.html
-5. write_project_file → all src files one by one
+2. write_project_file -> package.json FIRST
+3. write_project_file -> all config files
+4. write_project_file -> index.html
+5. write_project_file -> all src files one by one
 6. install_dependencies
-7. list_project_files → verify
-8. run_project → if requested
+7. list_project_files -> verify
+8. run_project -> if requested
 
 ## STRICT RULES
-- 100% complete code — ZERO placeholders or TODOs
+- 100% complete code - ZERO placeholders or TODOs
 - Use write_project_file for EVERY single file
-- NEVER use cd command — use project_name parameter in tools
+- NEVER use cd command - use project_name parameter in tools
 - Verify with list_project_files after all files written
 - When running projects or providing previews, provide the FULL exact URL including the path (e.g. http://localhost:8080/s.html)
+
 """
 
 
@@ -691,46 +860,47 @@ def build_system_prompt(project_name: str = "") -> str:
                 desc  = details.get("description", "")[:80]
                 stack = details.get("stack",        "unknown")
                 files = details.get("files",        [])
-                lines.append(f"- {name} ({stack}): {desc} — {len(files)} files")
+                lines.append(f"- {name} ({stack}): {desc} - {len(files)} files")
             return prompt + "\n".join(lines)
     except Exception:
         pass
     return prompt
 
 
-# ════════════════════════════════════════════════════════════
+# ============================================================
 # LIVE PROGRESS CALLBACK
-# ════════════════════════════════════════════════════════════
+# ============================================================
 class LiveProgressCallback(BaseCallbackHandler):
 
     TOOL_ICONS = {
-        "create_project":       "📁 Creating folder",
-        "write_project_file":   "✍️  Writing file",
-        "read_project_file":    "📖 Reading file",
-        "list_project_files":   "📋 Listing files",
-        "list_all_projects":    "📂 All projects",
-        "run_shell_command":    "⚙️  Running command",
-        "run_project":          "🚀 Launching project",
-        "install_dependencies": "📦 Installing packages",
-        "fix_error_in_project": "🔧 Fixing error",
-        "delete_project":       "🗑️  Deleting project",
-        "write_file":           "✍️  Writing file",
-        "read_file":            "📖 Reading file",
-        "edit_file":            "✏️  Editing file",
-        "ls":                   "📋 Listing dir",
-        "glob":                 "🔍 Searching",
-        "grep":                 "🔎 Grep",
-        "execute":              "⚙️  Execute",
-        "task":                 "📝 Planning",
-        "write_todos":          "📝 Todo list",
-        "compact_conversation": "🗜️  Compacting",
+        "create_project":       "folder: Creating folder",
+        "write_project_file":   "write: Writing file",
+        "read_project_file":    "read: Reading file",
+        "list_project_files":   "list: Listing files",
+        "list_all_projects":    "list: All projects",
+        "run_shell_command":    "run: Running command",
+        "run_project":          "run: Launching project",
+        "install_dependencies": "pkg: Installing packages",
+        "fix_error_in_project": "fix: Fixing error",
+        "delete_project":       "delete: Deleting project",
+        "write_file":           "write: Writing file",
+        "read_file":            "read: Reading file",
+        "edit_file":            "edit: Editing file",
+        "ls":                   "list: Listing dir",
+        "glob":                 "search: Searching",
+        "grep":                 "grep: Grep",
+        "execute":              "run: Execute",
+        "task":                 "plan: Planning",
+        "write_todos":          "plan: Todo list",
+        "compact_conversation": "zip: Compacting",
     }
+
 
     def on_tool_start(self, serialized, input_str, **kwargs):
         if not serialized:
             return
         tool_name = serialized.get("name", "tool")
-        icon      = self.TOOL_ICONS.get(tool_name, f"🔧 {tool_name}")
+        icon      = self.TOOL_ICONS.get(tool_name, f"[FIX] {tool_name}")
         raw       = str(input_str)
 
         if tool_name == "write_project_file":
@@ -745,8 +915,8 @@ class LiveProgressCallback(BaseCallbackHandler):
                 raw[:60] + "..." if len(raw) > 60 else raw
             )
 
-        print(f"\n  ├─ {icon}")
-        print(f"  │   └─ {preview}")
+        print(f"\n  +-- {icon}")
+        print(f"  |   +-- {preview}")
 
     def on_tool_end(self, output, **kwargs):
         if not output:
@@ -760,11 +930,11 @@ class LiveProgressCallback(BaseCallbackHandler):
         for line in lines:
             line = line.strip()
             if line and shown < 3:
-                print(f"  │   ✅ {line[:80]}")
+                print(f"  |   [OK] {line[:80]}")
                 shown += 1
 
     def on_tool_error(self, error, **kwargs):
-        print(f"  │   ❌ {str(error)[:100]}")
+        print(f"  |   [ERR] {str(error)[:100]}")
 
     def on_llm_start(self, serialized, prompts, **kwargs):
         model = None
@@ -775,19 +945,19 @@ class LiveProgressCallback(BaseCallbackHandler):
             inv   = kwargs.get("invocation_params", {})
             model = inv.get("model") or inv.get("model_name")
         display = MODEL_DISPLAY.get(model) or _CURRENT_MODEL_ICON["value"]
-        print(f"\n  🤔 Thinking... ({display})")
+        print(f"\n  thinking... Thinking... ({display})")
 
     def on_llm_end(self, response, **kwargs):
         try:
             text = response.generations[0][0].text
             if text and len(text) > 10:
                 preview = text.strip()[:120].replace("\n", " ")
-                print(f"  💭 {preview}...")
+                print(f"  thought: {preview}...")
         except Exception:
             pass
 
     def on_agent_action(self, action, **kwargs):
-        print(f"\n  🎯 → {action.tool}")
+        print(f"\n  [TARGET] -> {action.tool}")
 
     def on_chain_start(self, serialized, inputs, **kwargs):
         if not serialized:
@@ -796,12 +966,12 @@ class LiveProgressCallback(BaseCallbackHandler):
         skip = {"RunnableSequence", "RunnableMap",
                 "RunnableLambda", "RunnableParallel", ""}
         if name and name not in skip:
-            print(f"\n  🔗 {name}")
+            print(f"\n  [LINK] {name}")
 
 
-# ════════════════════════════════════════════════════════════
+# ============================================================
 # BUILD AGENT
-# ════════════════════════════════════════════════════════════
+# ============================================================
 def build_agent(model_key: str = "kimi", task: str = "", project_name: str = ""):
     if model_key == "auto":
         model_key = smart_route(task)
@@ -811,22 +981,22 @@ def build_agent(model_key: str = "kimi", task: str = "", project_name: str = "")
     skill = MODEL_SKILLS.get(model_key, "")
     _CURRENT_MODEL_ICON["value"] = icon
 
-    print(f"\n  🧠 DeepAgent → {icon}")
-    print(f"  💡 Best at  → {skill}")
+    print(f"\n  [AI] DeepAgent -> {icon}")
+    print(f"  [TIP] Best at  -> {skill}")
 
     backend = LocalShellBackend(root_dir=str(Path(".").resolve()))
     agent   = create_deep_agent(
         model=llm,
         tools=CUSTOM_TOOLS,
-        system_prompt=build_system_prompt(project_name),  # ✅ project-aware
+        system_prompt=build_system_prompt(project_name),  # [OK] project-aware
         backend=backend,
     )
     return agent, model_key
 
 
-# ════════════════════════════════════════════════════════════
+# ============================================================
 # RUN AGENT — with memory + auto error fixing
-# ════════════════════════════════════════════════════════════
+# ============================================================
 def run_agent(task: str, model_key: str = "auto",
               project_name: str = "", max_retries: int = 3) -> str:
 
@@ -834,22 +1004,22 @@ def run_agent(task: str, model_key: str = "auto",
     callback        = LiveProgressCallback()
 
     print(f"\n{'='*60}")
-    print(f"  🚀 DeepAgent starting...")
+    print(f"  [RUN] DeepAgent starting...")
     print(f"  📋 Task: {task[:75]}{'...' if len(task)>75 else ''}")
     print(f"{'='*60}\n  🔄 Live Progress:\n  {'─'*50}")
 
-    # ✅ MEMORY: Save user message
+    # [OK] MEMORY: Save user message
     try:
         db.save_message(current_user_id.get(), "user", task)
     except Exception:
         pass
 
-    # ✅ MEMORY: Show similar past errors if fix task
+    # [OK] MEMORY: Show similar past errors if fix task
     try:
         if "fix" in task.lower() or "error" in task.lower():
             similar = db.get_similar_errors(current_user_id.get(), task)
             if similar:
-                print(f"\n  💡 Similar past errors found:")
+                print(f"\n  [TIP] Similar past errors found:")
                 for e in similar:
                     print(f"     • {e['project']}: {e['error'][:60]}...")
                     print(f"       Fixed by: {e['fix'][:60]}...")
@@ -864,7 +1034,7 @@ def run_agent(task: str, model_key: str = "auto",
             )
 
             print(f"\n  {'─'*50}")
-            print(f"  ✅ Task complete!\n")
+            print(f"  [OK] Task complete!\n")
 
             # Extract final message
             messages = result.get("messages", [])
@@ -875,13 +1045,13 @@ def run_agent(task: str, model_key: str = "auto",
                     final = content
                     break
 
-            # ✅ MEMORY: Save assistant response
+            # [OK] MEMORY: Save assistant response
             try:
                 db.save_message(current_user_id.get(), "assistant", final or "Task completed")
             except Exception:
                 pass
 
-            # ✅ MEMORY: Save project details
+            # [OK] MEMORY: Save project details
             try:
                 if project_name:
                     folder = Path("workspace") / project_name
@@ -908,22 +1078,22 @@ def run_agent(task: str, model_key: str = "auto",
                     })
                     print(f"  💾 Saved to memory: {project_name}")
             except Exception as mem_err:
-                print(f"  ⚠️ Memory save failed: {mem_err}")
+                print(f"  [WARN] Memory save failed: {mem_err}")
 
             _verify_files()
-            return final or "✅ Done."
+            return final or "[OK] Done."
 
         except Exception as e:
             error_msg = str(e)
             print(f"\n  {'─'*50}")
-            print(f"  ❌ Error on attempt {attempt}/{max_retries}:")
+            print(f"  [ERR] Error on attempt {attempt}/{max_retries}:")
             print(f"  {error_msg[:200]}")
 
             if attempt < max_retries:
-                print(f"\n  🔧 Auto-fixing error... (attempt {attempt+1}/{max_retries})")
+                print(f"\n  [FIX] Auto-fixing error... (attempt {attempt+1}/{max_retries})")
                 time.sleep(2)
 
-                # ✅ MEMORY: Save error
+                # [OK] MEMORY: Save error
                 try:
                     if project_name:
                         db.save_error(current_user_id.get(), project_name, str(e), "auto-retry")
@@ -944,14 +1114,15 @@ Please:
 4. Rewrite the broken files using write_project_file
 5. Verify with list_project_files
 """
+
                 agent, _ = build_agent(model_key=used_key, task=task)
 
             else:
-                print(f"\n  ❌ Could not auto-fix after {max_retries} attempts")
-                print(f"  💡 Try describing the error using option [5] Fix Bug")
+                print(f"\n  [ERR] Could not auto-fix after {max_retries} attempts")
+                print(f"  [TIP] Try describing the error using option [5] Fix Bug")
                 return f"Error: {error_msg}"
 
-    return "✅ Done."
+    return "[OK] Done."
 
 
 def _verify_files():
@@ -979,12 +1150,12 @@ def _verify_files():
             continue
 
         if not any_found:
-            print(f"  📁 Workspace — project files:")
+            print(f"  [DIR] Project files:")
             any_found = True
 
-        print(f"\n     📂 {d.name}/")
+        print(f"\n     [DIR] {d.name}/")
         for f in files:
-            print(f"        └─ {f.relative_to(d)}  ({f.stat().st_size:,} bytes)")
+            print(f"        +-- {f.relative_to(d)}  ({f.stat().st_size:,} bytes)")
 
     if not any_found:
         print("  📭 No files written yet.")

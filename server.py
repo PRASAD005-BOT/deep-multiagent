@@ -10,7 +10,7 @@ from flask_cors import CORS
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agents.deep_agent import build_agent, _verify_files, get_workspace
+from agents.deep_agent import build_agent, _verify_files, get_workspace, build_and_get_entry
 import db
 from db import current_user_id
 from models import MODELS, ICONS, MODEL_SKILLS, smart_route
@@ -18,6 +18,7 @@ from functools import wraps
 # from agents.deep_agent import run_project as run_project_agent # This function doesn't exist
 import io
 import zipfile
+import shutil
 from langchain_core.callbacks import BaseCallbackHandler
 
 app = Flask(__name__)
@@ -73,17 +74,20 @@ def count_project_files(path: Path) -> int:
 def get_relative_files(path: Path) -> list:
     """Get list of relative file paths skipping node_modules."""
     file_list = []
+    if not path.exists():
+        print(f"DEBUG WORKSPACE: Path {path} does not exist in get_relative_files")
+        return []
     try:
         for root, dirs, files in os.walk(path):
-            if "node_modules" in dirs:
-                dirs.remove("node_modules")
-            if ".git" in dirs:
-                dirs.remove(".git")
+            # Skip hidden and ignored folders
+            dirs[:] = [d for d in dirs if d not in ["node_modules", ".git", "__pycache__", "venv", ".venv"]]
             for f in files:
-                rel = Path(root).relative_to(path) / f
-                file_list.append(str(rel).replace("\\", "/"))
-    except Exception:
-        pass
+                abs_path = os.path.join(root, f)
+                rel = os.path.relpath(abs_path, path)
+                file_list.append(rel.replace("\\", "/"))
+        print(f"DEBUG WORKSPACE: Found {len(file_list)} files in {path}")
+    except Exception as e:
+        print(f"DEBUG WORKSPACE Error in get_relative_files: {str(e)}")
     return file_list
 
 class StreamingCallback(BaseCallbackHandler):
@@ -237,12 +241,13 @@ def run_agent_streaming(task: str, model_key: str,
                 elif "index.js" in files:                            stack = "nodejs"
                 elif "index.html" in files:                          stack = "html"
 
+                print(f"DEBUG WORKSPACE: Finalizing project '{project_name}' with {len(files)} files.")
                 db.upsert_project(user_id, project_name, {
                     "desc": task[:100],
                     "stack": stack,
                     "files": files,
                     "model_used": used_key,
-                    "built_at": str(datetime.datetime.now().date()),
+                    "built_at": datetime.datetime.now().isoformat(),
                     "status": "built",
                 })
         except Exception:
@@ -408,10 +413,9 @@ def delete_project_endpoint(name):
     user_id = request.user.id
     try:
         # 1. Delete from DB
-        db.delete_project_memory(user_id, name)
+        db.delete_project(user_id, name)
         
         # 2. Delete from disk
-        import shutil
         project_dir = get_workspace() / name
         if project_dir.exists():
             shutil.rmtree(project_dir)
@@ -541,39 +545,37 @@ def delete_file_endpoint(name):
 @app.route("/api/projects/<name>/run", methods=["POST"])
 @auth_required
 def run_project_endpoint(name):
+    """Build the project and return a preview URL served through our backend."""
     user_id = request.user.id
     current_user_id.set(user_id)
     try:
-        from agents.deep_agent import run_agent
-        # Since run_project doesn't exist, we use the general run_agent
-        # and ask it to run the project.
-        result = run_agent(f"Launch and run the project {name}", project_name=name)
-        
-        # Extract URL
-        import re
-        url_match = re.search(r'https?://(?:localhost|0\.0\.0\.0|127\.0\.0\.1):\d+(?:/[a-zA-Z0-9_./-]*)?', result)
-        url = url_match.group(0) if url_match else None
-        
-        print(f"DEBUG PREVIEW: Extracted URL: {url} from result: {result[:100]}...")
-        
-        # If running on Render/Production, proxy to Workspace Static Serving if it's a localhost link
-        if url and ("localhost" in url or "0.0.0.0" in url or "127.0.0.1" in url):
-             path_part = ""
-             # Match everything after the port
-             path_match = re.search(r':\d+([a-zA-Z0-9_./-]*)$', url)
-             if path_match:
-                 path_part = path_match.group(1)
-             
-             if not path_part or path_part == "/":
-                 path_part = "/index.html"
-             
-             # Relative path already has a leading slash if any
-             url = f"/api/workspace/{user_id}/{name}{path_part}"
-             print(f"DEBUG PREVIEW: Render fallback URL: {url}")
-            
-        return jsonify({"status": "launched", "result": result, "url": url})
+        result = build_and_get_entry(name, user_id)
+        print(f"BUILD RESULT: {result}")
+
+        if result["status"] == "error":
+            return jsonify({"status": "error", "result": result["message"], "url": None}), 200
+
+        entry = result.get("entry_path")
+        proj_type = result.get("type", "unknown")
+
+        # Frontend projects: serve built output through /api/workspace/
+        if entry:
+            url = f"/api/workspace/{user_id}/{name}/{entry}"
+        elif result.get("port"):
+            # Backend projects: proxy through localhost
+            url = f"http://localhost:{result['port']}"
+        else:
+            url = f"/api/workspace/{user_id}/{name}/index.html"
+
+        print(f"BUILD PREVIEW URL: {url}")
+        return jsonify({
+            "status": "launched",
+            "result": result["message"],
+            "url": url,
+            "type": proj_type
+        })
     except Exception as e:
-        print(f"DEBUG RUN Error: {str(e)}")
+        print(f"BUILD RUN Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -804,21 +806,67 @@ def serve_avatar(user_id, filename):
     except Exception as e:
         return "Not found", 404
 
+# ── MIME type map ─────────────────────────────────────────
+MIME_MAP = {
+    ".js": "application/javascript", ".mjs": "application/javascript",
+    ".css": "text/css", ".html": "text/html",
+    ".json": "application/json", ".svg": "image/svg+xml",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".ico": "image/x-icon",
+    ".woff": "font/woff", ".woff2": "font/woff2",
+    ".ttf": "font/ttf", ".eot": "application/vnd.ms-fontobject",
+    ".webp": "image/webp", ".mp4": "video/mp4",
+}
+
+# Root route: /api/workspace/<uid>/<pname>/ → auto-find index.html
+@app.route("/api/workspace/<uid>/<pname>/")
+def serve_workspace_root(uid, pname):
+    from flask import send_from_directory, redirect
+    base_dir = Path(__file__).parent.resolve()
+    project_dir = (base_dir / "workspace" / uid / pname).resolve()
+    if not project_dir.exists():
+        return "Project not found", 404
+
+    # Priority: dist/index.html > out/index.html > build/index.html > index.html
+    for candidate in ["dist/index.html", "out/index.html", "build/index.html", "index.html"]:
+        if (project_dir / candidate).exists():
+            return redirect(f"/api/workspace/{uid}/{pname}/{candidate}")
+
+    # Try first HTML file
+    html_files = list(project_dir.rglob("*.html"))
+    if html_files:
+        html_files.sort(key=lambda f: len(str(f.relative_to(project_dir))))
+        entry = str(html_files[0].relative_to(project_dir)).replace("\\", "/")
+        return redirect(f"/api/workspace/{uid}/{pname}/{entry}")
+
+    return "No index.html found", 404
+
+
 @app.route("/api/workspace/<uid>/<pname>/<path:filename>")
 def serve_workspace_file(uid, pname, filename):
     try:
         from flask import send_from_directory
-        # Use absolute path relative to server.py
         base_dir = Path(__file__).parent.resolve()
         project_dir = (base_dir / "workspace" / uid / pname).resolve()
-        
+
         if not project_dir.exists():
-            print(f"DEBUG WORKSPACE: Project dir not found at {project_dir}")
-            return f"Project not found at {project_dir}", 404
-            
-        return send_from_directory(str(project_dir), filename)
+            print(f"SERVE: Project dir not found at {project_dir}")
+            return "Project not found", 404
+
+        # Block serving raw source files
+        if filename.endswith((".jsx", ".tsx", ".ts")) and "/dist/" not in filename and "/out/" not in filename:
+            return "Cannot serve raw source files. Use built output.", 403
+
+        # Determine MIME type
+        ext = os.path.splitext(filename)[1].lower()
+        mimetype = MIME_MAP.get(ext)
+        if not mimetype:
+            import mimetypes as _mt
+            mimetype, _ = _mt.guess_type(filename)
+
+        return send_from_directory(str(project_dir), filename, mimetype=mimetype)
     except Exception as e:
-        print(f"DEBUG WORKSPACE Error: {str(e)}")
+        print(f"SERVE Error: {str(e)}")
         return str(e), 500
 
 if __name__ == "__main__":
