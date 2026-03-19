@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { supabase } from './lib/supabase'
 import ChatPanel from './components/ChatPanel'
 import Editor from '@monaco-editor/react'
 
@@ -8,6 +9,7 @@ function Spinner() { return <div className="w-3 h-3 border-2 border-white/20 bor
 function EyeIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M1 12s4-8 11-8 11 8 11 8-4-8-11-8-11 8-11 8z"/><circle cx="12" cy="12" r="3"/></svg> }
 function RocketIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4.5c1.45-1.47 4.5-2 4.5-2"/><path d="M15 12v5s3.03-.55 4.5-2c1.47-1.45 2-4.5 2-4.5"/></svg> }
 function ExternalLink({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> }
+function DownloadIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> }
 function TerminalIcon({ size = 16, className="" }) { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> }
 
 export default function IDERoute({ project, onBack, API, models, messages, streaming, onSend, isMobile }) {
@@ -353,6 +355,14 @@ export default function IDERoute({ project, onBack, API, models, messages, strea
                 </button>
               </div>
             )}
+
+            <button 
+              onClick={downloadProject}
+              className="p-3 rounded-2xl bg-white/5 border border-white/10 text-white/30 hover:text-white hover:bg-white/10 transition-all active:scale-95 group"
+              title="Download Project ZIP"
+            >
+              <DownloadIcon size={20} className="group-hover:scale-110 transition-transform" />
+            </button>
 
             <button 
               onClick={onBack}

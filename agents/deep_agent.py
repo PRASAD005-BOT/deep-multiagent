@@ -22,10 +22,14 @@ BASE_WORKSPACE.mkdir(exist_ok=True)
 
 def get_workspace() -> Path:
     uid = current_user_id.get()
+    print(f"DEBUG WORKSPACE: current_user_id is {uid}")
     if uid:
         path = BASE_WORKSPACE / uid
-        path.mkdir(exist_ok=True)
+        if not path.exists():
+            print(f"DEBUG WORKSPACE: Creating uid folder {path}")
+            path.mkdir(parents=True, exist_ok=True)
         return path
+    print(f"DEBUG WORKSPACE: UID is None, returning base workspace {BASE_WORKSPACE.resolve()}")
     return BASE_WORKSPACE
 
 WORKSPACE = BASE_WORKSPACE # Default to base, routes should use get_workspace() or WORKSPACE / user_id

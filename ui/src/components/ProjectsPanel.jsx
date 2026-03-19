@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import axios from 'axios'
 import { motion, AnimatePresence } from 'framer-motion'
+import { supabase } from '../lib/supabase'
 
 export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore, isMobile, API, onSend, onNotify }) {
   const fileInputRef = useRef(null)
@@ -41,6 +42,16 @@ export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore
       onRefresh()
     } catch (err) {
       onNotify("Purge failed: " + err.message, 'error')
+    }
+  }
+
+  const handleDownload = async (name) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      window.location.href = `${API}/projects/${encodeURIComponent(name)}/download?token=${token}`
+    } catch (err) {
+      onNotify("Download failed: " + err.message, 'error')
     }
   }
 
@@ -117,6 +128,7 @@ export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore
               onLaunch={onLaunch} 
               onExplore={onExplore} 
               onDelete={(name) => setDeletingProject(name)}
+              onDownload={handleDownload}
             />
           ))}
           
@@ -239,7 +251,7 @@ export default function ProjectsPanel({ projects, onRefresh, onLaunch, onExplore
   )
 }
 
-function ProjectCard({ project, delay, onLaunch, onExplore, onDelete }) {
+function ProjectCard({ project, delay, onLaunch, onExplore, onDelete, onDownload }) {
   const STACK_ICONS = {
     'react-vite': '⚛️', 'vue': '🖖', 'nodejs': '🟢', 'html': '🌐', 'flask/fastapi': '🐍'
   }
@@ -303,6 +315,14 @@ function ProjectCard({ project, delay, onLaunch, onExplore, onDelete }) {
             title="Open Editor"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          </button>
+
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDownload(project.name); }}
+            className="w-12 h-12 bg-white/[0.04] border border-white/[0.08] rounded-xl flex items-center justify-center text-white/30 hover:text-white hover:bg-accent/20 hover:border-accent/40 transition-all active:scale-95"
+            title="Download Project"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
           </button>
 
           <button 

@@ -5,7 +5,7 @@ import queue
 import threading
 import datetime
 from pathlib import Path
-from flask import Flask, Response, request, jsonify
+from flask import Flask, Response, request, jsonify, send_file
 from flask_cors import CORS
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -370,6 +370,7 @@ def projects():
         db_map = {p["name"]: p for p in db_projects}
         
         workspace = get_workspace()
+        print(f"DEBUG PROJECTS: Final workspace path for listing: {workspace.resolve()}")
         if not workspace.exists():
             workspace.mkdir(parents=True, exist_ok=True)
 
@@ -416,6 +417,34 @@ def delete_project_endpoint(name):
             shutil.rmtree(project_dir)
             
         return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/projects/<name>/download")
+@auth_required
+def download_project_endpoint(name):
+    user_id = request.user.id
+    project_dir = get_workspace() / name
+    
+    if not project_dir.exists():
+        return jsonify({"error": "Project not found"}), 404
+        
+    try:
+        memory_file = io.BytesIO()
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(project_dir):
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(abs_path, project_dir)
+                    zf.write(abs_path, rel_path)
+        
+        memory_file.seek(0)
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f"{name}.zip"
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
