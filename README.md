@@ -42,6 +42,7 @@ The system leverages several LLMs dynamically via **OpenRouter**:
 - **Self-Healing:** Built-in semantic log analysis. If a Vite build fails, the agent intercepts the `stderr`, strips out noise, isolates the syntax/dependency error, opens the specific file, fixes it, and re-runs the build autonomously.
 
 ### Core System Architecture
+<img width="1536" height="1024" alt="ChatGPT Image Apr 23, 2026, 06_17_41 PM" src="https://github.com/user-attachments/assets/bb59b570-cb8a-484c-8f2c-102264f82d42" />
 
 ```mermaid
 flowchart TD
