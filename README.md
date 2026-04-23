@@ -41,63 +41,70 @@ The system leverages several LLMs dynamically via **OpenRouter**:
 - **Sandboxed Execution:** Agents create physical folders mapped correctly on your disk (or Docker volume), run npm/pip installs securely, and boot background servers using subprocesses.
 - **Self-Healing:** Built-in semantic log analysis. If a Vite build fails, the agent intercepts the `stderr`, strips out noise, isolates the syntax/dependency error, opens the specific file, fixes it, and re-runs the build autonomously.
 
-### Core System Architecture
+## Core System Architecture
 
 ```mermaid
 flowchart TD
+
     %% Frontend Layer
-    subgraph UI ["React Frontend (Vite)"]
-        Chat[Chat Interface]
-        Projects[Project Manager]
-        Terminal[Live Progress & Previews]
+    subgraph UI["React Frontend (Vite)"]
+        Chat["Chat Interface"]
+        Projects["Project Manager"]
+        Terminal["Live Progress & Previews"]
     end
 
-    %% Main Networking
-    UI -- "REST API / SSE (Server-Sent Events) Stream" --> Server
-    UI -- "JWT Auth & Session" --> DB[(Supabase DB)]
+    %% Database
+    DB[("Supabase DB")]
 
     %% Backend Components
-    subgraph API ["Python Backend"]
-        Server[server.py (Flask API)]
-        MCP[mcp_server.py]
+    subgraph API["Python Backend"]
+        Server["server.py (Flask API)"]
+        MCP["mcp_server.py"]
     end
-
-    %% External Integrations
-    ExternalApp["External IDE (e.g., Cursor, VSCode)"] -- "Model Context Protocol (MCP)" --> MCP
 
     %% Intelligence Layer
-    subgraph Brain ["Agentic Workflow (LangChain & DeepAgents)"]
-        Router{Smart Router}
-        DeepAgent[deep_agent.py ReAct Agent]
-        ErrorFixer[Syntax/Build Error Analyzer]
-        Tools[Tool Registry IO Layer]
+    subgraph Brain["Agentic Workflow (LangChain & DeepAgents)"]
+        Router{"Smart Router"}
+        DeepAgent["deep_agent.py (ReAct Agent)"]
+        ErrorFixer["Syntax / Build Error Analyzer"]
+        Tools["Tool Registry & IO Layer"]
     end
 
-    Server -- "Dispatches User Task" --> Router
-    MCP -- "Dispatches Remote Command" --> Tools
-
-    Router -- "Matches LLM Signature" --> DeepAgent
-    DeepAgent <-->|Invokes / Receives Output| Tools
-    Tools -- "Detects Build Failures" --> ErrorFixer
-    ErrorFixer -- "LangGraph Cycle" --> DeepAgent
+    %% Environment Layer
+    subgraph Environment["Local OS Sandbox"]
+        Workspace["workspace/projects/"]
+        SubProcess["Background Runner (Ports)"]
+    end
 
     %% External APIs
-    DeepAgent -- "Gateway" --> OpenRouter((OpenRouter.ai))
-    OpenRouter -.-> GPT["GPT-5.2"]
-    OpenRouter -.-> Kimi["Kimi / Claude Sonnet"]
+    OpenRouter(("OpenRouter.ai"))
+    GPT["GPT-5.2"]
+    Kimi["Kimi / Claude Sonnet"]
 
-    %% Infrastructure & File System Layer
-    subgraph Environment ["Local OS Sandbox"]
-        Workspace[workspace/projects/]
-        SubProcess[Background Runner Ports]
-    end
+    %% External IDE
+    ExternalApp["External IDE (Cursor / VSCode)"]
 
-    Tools -- "Writes Files / Install NPM" --> Workspace
-    Tools -- "Subprocess (Build & Serve)" --> SubProcess
-    Server -- "Proxies Live Apps" --> SubProcess
-```
+    %% Connections
+    UI -->|REST API / SSE| Server
+    UI -->|JWT Auth & Session| DB
 
----
+    Server -->|Dispatch Task| Router
+    MCP -->|Remote Commands (MCP)| Tools
+
+    Router -->|LLM Routing| DeepAgent
+    DeepAgent <--> |Invoke Tools| Tools
+    Tools -->|Error Detection| ErrorFixer
+    ErrorFixer -->|LangGraph Cycle| DeepAgent
+
+    DeepAgent -->|LLM Gateway| OpenRouter
+    OpenRouter --> GPT
+    OpenRouter --> Kimi
+
+    Tools -->|Write Files / Install NPM| Workspace
+    Tools -->|Run Builds| SubProcess
+    Server -->|Proxy Apps| SubProcess
+
+    ExternalApp -->|MCP Protocol| MCP
 
 ## 2. 🧠 How it Works as an Agentic AI
 
