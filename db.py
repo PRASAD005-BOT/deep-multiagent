@@ -16,7 +16,16 @@ if not URL or not KEY:
     print("❌ ERROR: Supabase credentials missing in .env")
     supabase: Client = None
 else:
-    supabase: Client = create_client(URL, KEY)
+    try:
+        supabase: Client = create_client(URL, KEY)
+    except Exception as _sb_err:
+        print(f"⚠️  Supabase init warning (non-fatal): {_sb_err}")
+        try:
+            # Retry without cached auth state
+            from supabase._sync.client import SyncClient
+            supabase: Client = create_client(URL, KEY)
+        except Exception:
+            supabase: Client = None
 
 def ensure_profile(user_id: str, email: str = None, full_name: str = None):
     """Ensure a profile exists in the profiles table for the given user_id."""

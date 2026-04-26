@@ -215,12 +215,20 @@ def run_agent_streaming(task: str, model_key: str,
         )
 
         messages = result.get("messages", [])
-        final    = ""
-        for msg in reversed(messages):
-            content = getattr(msg, "content", "")
-            if content and isinstance(content, str) and len(content) > 10:
-                final = content
-                break
+        final    = "Task completed successfully."
+        
+        if messages:
+            last_msg = messages[-1]
+            mtype = getattr(last_msg, "type", type(last_msg).__name__).lower()
+            if mtype == "ai" or "ai" in mtype:
+                content = getattr(last_msg, "content", "")
+                if isinstance(content, list):
+                    texts = [c.get("text", "") for c in content if isinstance(c, dict) and "text" in c]
+                    content = " ".join(texts)
+                if content and isinstance(content, str) and len(content.strip()) > 0:
+                    final = content
+        
+        print(f"=== FINAL EXTRACTED AI TEXT: {repr(final)[:100]} ===\n\n")
 
         try:
             if chat_id:
@@ -658,12 +666,17 @@ def memory_stats():
 @app.route("/api/models")
 def models():
     return jsonify([
-        {"key": "auto",    "label": "AUTO",       "desc": "Smart route",          "color": "#888"},
-        {"key": "kimi",    "label": "Kimi K2.5",  "desc": "Code writing",         "color": "#E8831A"},
-        {"key": "gpt5",    "label": "GPT-5.2",    "desc": "Planning",             "color": "#10A37F"},
-        {"key": "gemini3", "label": "Gemini 3",   "desc": "Fast & lightweight",   "color": "#4285F4"},
-        {"key": "claude",  "label": "Claude",     "desc": "Reasoning & chat",     "color": "#CC785C"},
-        {"key": "minimax", "label": "MiniMax",    "desc": "Workflows & docs",     "color": "#9B59B6"},
+        {"key": "auto",             "label": "AUTO",              "desc": "Smart route",               "color": "#888",    "group": "system"},
+        {"key": "kimi",             "label": "Kimi K2.5",         "desc": "Code writing",              "color": "#E8831A", "group": "openrouter"},
+        {"key": "gpt5",             "label": "GPT-5.2",           "desc": "Planning",                  "color": "#10A37F", "group": "openrouter"},
+        {"key": "claude",           "label": "Claude Sonnet",     "desc": "Reasoning & chat",          "color": "#CC785C", "group": "openrouter"},
+        {"key": "minimax",          "label": "MiniMax",           "desc": "Workflows & docs",          "color": "#9B59B6", "group": "openrouter"},
+        {"key": "gemini3",          "label": "Gemini 3 Flash",    "desc": "Via OpenRouter",            "color": "#4285F4", "group": "openrouter"},
+        # Direct Google Gemini models
+        {"key": "gemini-flash",     "label": "Gemini 2.5 Flash",      "desc": "Ultra-fast & smart",   "color": "#4285F4", "group": "gemini"},
+        {"key": "gemini-pro",       "label": "Gemini 1.5 Pro",        "desc": "Balanced reasoning",   "color": "#34A853", "group": "gemini"},
+        {"key": "gemini-flash-lite","label": "Gemini 2.0 Flash Lite", "desc": "Super-fast & cheap",   "color": "#FBBC05", "group": "gemini"},
+        {"key": "gemini-2-5-pro",   "label": "Gemini 2.5 Pro",        "desc": "Most powerful Gemini", "color": "#EA4335", "group": "gemini"},
     ])
 
 

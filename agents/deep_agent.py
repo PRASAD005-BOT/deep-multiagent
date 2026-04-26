@@ -198,7 +198,13 @@ def build_and_get_entry(project_name: str, user_id: str) -> dict:
                     # Insert base: './' into the defineConfig call
                     cfg_text = cfg_text.replace("defineConfig({", "defineConfig({\n  base: './',", 1)
                     vite_cfg.write_text(cfg_text, encoding="utf-8")
-                    print(f"BUILD: Injected base: './' into {vite_cfg.name}")
+            else:
+                # If missing completely, generate a basic config with relative paths
+                vite_cfg.write_text(
+                    "import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  base: './',\n  plugins: [react()]\n});",
+                    encoding="utf-8"
+                )
+                print(f"BUILD: Injected base: './' into {vite_cfg.name}")
 
             # npm install
             print(f"BUILD: Running npm install in {folder_str}...")
@@ -622,7 +628,7 @@ def delete_project(project_name: str) -> str:
 
 
 @tool
-def generate_image_with_fal(prompt) -> str:
+def generate_image_with_fal(image_description: str) -> str:
     """
     Generate an image using Fal AI.
     - Fixes invalid steps issue
@@ -640,17 +646,17 @@ def generate_image_with_fal(prompt) -> str:
     }
 
     # ── UNWRAP INPUT ───────────────────────────────
-    if isinstance(prompt, dict):
-        if "prompt" in prompt and isinstance(prompt["prompt"], dict):
-            prompt = prompt["prompt"]
+    if isinstance(image_description, dict):
+        if "prompt" in image_description and isinstance(image_description["prompt"], dict):
+            image_description = image_description["prompt"]
 
-        prompt_text = prompt.get("prompt", "")
-        negative_prompt = prompt.get("negative_prompt", "")
-        model_key = prompt.get("model", "flux-schnell")
-        image_size = prompt.get("image_size", "landscape_4_3")
-        steps = prompt.get("num_inference_steps", 28)
+        prompt_text = image_description.get("prompt", "")
+        negative_prompt = image_description.get("negative_prompt", "")
+        model_key = image_description.get("model", "flux-schnell")
+        image_size = image_description.get("image_size", "landscape_4_3")
+        steps = image_description.get("num_inference_steps", 28)
     else:
-        prompt_text = prompt
+        prompt_text = image_description
         negative_prompt = ""
         model_key = "flux-schnell"
         image_size = "landscape_4_3"
@@ -1038,12 +1044,17 @@ def run_agent(task: str, model_key: str = "auto",
 
             # Extract final message
             messages = result.get("messages", [])
-            final    = ""
-            for msg in reversed(messages):
-                content = getattr(msg, "content", "")
-                if content and isinstance(content, str) and len(content) > 10:
-                    final = content
-                    break
+            final    = "Task completed successfully."
+            if messages:
+                last_msg = messages[-1]
+                mtype = getattr(last_msg, "type", type(last_msg).__name__).lower()
+                if mtype == "ai" or "ai" in mtype:
+                    content = getattr(last_msg, "content", "")
+                    if isinstance(content, list):
+                        texts = [c.get("text", "") for c in content if isinstance(c, dict) and "text" in c]
+                        content = " ".join(texts)
+                    if content and isinstance(content, str) and len(content.strip()) > 0:
+                        final = content
 
             # [OK] MEMORY: Save assistant response
             try:
