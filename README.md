@@ -42,6 +42,7 @@ The system leverages several LLMs dynamically via **OpenRouter**:
 - **Self-Healing:** Built-in semantic log analysis. If a Vite build fails, the agent intercepts the `stderr`, strips out noise, isolates the syntax/dependency error, opens the specific file, fixes it, and re-runs the build autonomously.
 
 ### Core System Architecture
+<<<<<<< HEAD
 
 ```mermaid
 flowchart TD
@@ -95,6 +96,71 @@ flowchart TD
     Tools -- "Writes Files / Install NPM" --> Workspace
     Tools -- "Subprocess (Build & Serve)" --> SubProcess
     Server -- "Proxies Live Apps" --> SubProcess
+=======
+<img width="1536" height="1024" alt="ChatGPT Image Apr 23, 2026, 06_17_41 PM" src="https://github.com/user-attachments/assets/bb59b570-cb8a-484c-8f2c-102264f82d42" />
+
+```mermaid
+flowchart TD
+
+    %% Frontend Layer
+    subgraph UI["React Frontend - Vite"]
+        Chat["Chat Interface"]
+        Projects["Project Manager"]
+        Terminal["Live Progress and Previews"]
+    end
+
+    %% Database
+    DB["Supabase DB"]
+
+    %% Backend
+    subgraph API["Python Backend"]
+        Server["server.py - Flask API"]
+        MCP["mcp_server.py"]
+    end
+
+    %% External IDE
+    ExternalApp["External IDE - Cursor or VSCode"]
+
+    %% Intelligence Layer
+    subgraph Brain["Agentic Workflow - LangChain and DeepAgents"]
+        Router{"Smart Router"}
+        DeepAgent["deep_agent.py - ReAct Agent"]
+        ErrorFixer["Syntax and Build Error Analyzer"]
+        Tools["Tool Registry and IO Layer"]
+    end
+
+    %% Environment
+    subgraph Environment["Local OS Sandbox"]
+        Workspace["workspace/projects"]
+        SubProcess["Background Runner Ports"]
+    end
+
+    %% LLM Layer
+    OpenRouter["OpenRouter.ai"]
+    GPT["GPT-5.2"]
+    Kimi["Kimi or Claude Sonnet"]
+
+    %% Connections
+    UI -->|"REST API or SSE"| Server
+    UI -->|"JWT Auth"| DB
+
+    Server -->|"Dispatch Task"| Router
+    MCP -->|"Remote Commands"| Tools
+    ExternalApp -->|"MCP Protocol"| MCP
+
+    Router -->|"Route Request"| DeepAgent
+    DeepAgent -->|"Use Tools"| Tools
+    Tools -->|"Detect Errors"| ErrorFixer
+    ErrorFixer -->|"Retry Cycle"| DeepAgent
+
+    DeepAgent -->|"LLM Gateway"| OpenRouter
+    OpenRouter --> GPT
+    OpenRouter --> Kimi
+
+    Tools -->|"Write Files"| Workspace
+    Tools -->|"Run Build"| SubProcess
+    Server -->|"Proxy Apps"| SubProcess
+>>>>>>> d517979dfcab20d72ed72ca0ce6abca7c8cab820
 ```
 
 ---
