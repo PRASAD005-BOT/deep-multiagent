@@ -9,6 +9,7 @@ import SettingsPanel from './SettingsPanel.jsx'
 import BottomNav from './components/BottomNav.jsx'
 import IDERoute from './IDERoute.jsx'
 import Login from './Login.jsx'
+import LoadingPage from './components/LoadingPage.jsx'
 import { supabase } from './lib/supabase'
 const API_BASE =
   import.meta.env.VITE_API_BASEURL ||
@@ -293,11 +294,7 @@ export default function App() {
     if (isMobile) setSidebarOpen(false)
   }
 
-  if (authLoading) return (
-    <div className="h-screen w-screen bg-[#050608] flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
-    </div>
-  )
+  if (authLoading) return <LoadingPage />
 
   if (!supabase) return <SetupGuide />
   if (!user) return <Login onLogin={setUser} />
