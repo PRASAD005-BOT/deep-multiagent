@@ -27,5 +27,5 @@ services:
     region: oregon
     envVars:
       - key: VITE_API_BASEURL
-        value: https://devagent-backend-95j7.onrender.com
+        value: https://devagent-backend-nbdq.onrender.com
     autoDeploy: true
