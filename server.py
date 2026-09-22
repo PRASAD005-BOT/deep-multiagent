@@ -1,5 +1,9 @@
 import sys
 import os
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import json
 import queue
 import threading
@@ -673,10 +677,10 @@ def models():
         {"key": "minimax",          "label": "MiniMax",           "desc": "Workflows & docs",          "color": "#9B59B6", "group": "openrouter"},
         {"key": "gemini3",          "label": "Gemini 3 Flash",    "desc": "Via OpenRouter",            "color": "#4285F4", "group": "openrouter"},
         # Direct Google Gemini models
-        {"key": "gemini-flash",     "label": "Gemini 2.5 Flash",      "desc": "Ultra-fast & smart",   "color": "#4285F4", "group": "gemini"},
-        {"key": "gemini-pro",       "label": "Gemini 1.5 Pro",        "desc": "Balanced reasoning",   "color": "#34A853", "group": "gemini"},
-        {"key": "gemini-flash-lite","label": "Gemini 2.0 Flash Lite", "desc": "Super-fast & cheap",   "color": "#FBBC05", "group": "gemini"},
-        {"key": "gemini-2-5-pro",   "label": "Gemini 2.5 Pro",        "desc": "Most powerful Gemini", "color": "#EA4335", "group": "gemini"},
+        {"key": "gemini-flash",     "label": "Gemini 3.6 Flash",      "desc": "Ultra-fast & smart",   "color": "#4285F4", "group": "gemini"},
+        {"key": "gemini-pro",       "label": "Gemini 3.1 Pro",        "desc": "Balanced reasoning",   "color": "#34A853", "group": "gemini"},
+        {"key": "gemini-flash-lite","label": "Gemini 3.1 Flash Lite", "desc": "Super-fast & cheap",   "color": "#FBBC05", "group": "gemini"},
+        {"key": "gemini-2-5-pro",   "label": "Gemini 3.1 Pro",        "desc": "Most powerful Gemini", "color": "#EA4335", "group": "gemini"},
     ])
 
 

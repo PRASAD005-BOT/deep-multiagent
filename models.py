@@ -19,19 +19,28 @@ def get_gemini_key():
 
 def get_gemini_model(model_name: str, temperature: float = 0.5, api_key: str = None):
     """
-    Return a native ChatGoogleGenerativeAI instance.
+    Return a native ChatGoogleGenerativeAI instance with native thought_signature support.
     """
-    from langchain_openai import ChatOpenAI
+    from langchain_google_genai import ChatGoogleGenerativeAI
     
     if not api_key:
         api_key = get_gemini_key()
 
-
+    MODEL_ALIASES = {
+        "gemini-flash": "gemini-3.6-flash",
+        "gemini-pro": "gemini-3.1-pro-preview",
+        "gemini-2.5-flash": "gemini-3.6-flash",
+        "models/gemini-2.5-flash": "gemini-3.6-flash",
+        "gemini-2.5-pro": "gemini-3.1-pro-preview",
+        "models/gemini-2.5-pro": "gemini-3.1-pro-preview",
+        "gemini-2.0-flash-lite": "gemini-3.1-flash-lite",
+        "models/gemini-2.0-flash-lite": "gemini-3.1-flash-lite",
+    }
+    model_name = MODEL_ALIASES.get(model_name, model_name)
     
-    return ChatOpenAI(
+    return ChatGoogleGenerativeAI(
         model=model_name,
-        openai_api_key=api_key,
-        openai_api_base="https://generativelanguage.googleapis.com/v1beta/openai/",
+        google_api_key=api_key,
         temperature=temperature,
         max_retries=2,
     )
@@ -68,10 +77,10 @@ MODEL_CONFIGS = {
 
 # Direct Gemini models (key → (google model id, temperature))
 GEMINI_MODEL_CONFIGS = {
-    "gemini-flash":      ("gemini-2.5-flash",                  0.7),
-    "gemini-pro":        ("gemini-2.5-pro",                    0.7),
-    "gemini-flash-lite": ("gemini-2.0-flash-lite",             0.3),
-    "gemini-2-5-pro":    ("gemini-2.5-pro",                    0.5),
+    "gemini-flash":      ("gemini-3.6-flash",                  0.7),
+    "gemini-pro":        ("gemini-3.1-pro-preview",            0.7),
+    "gemini-flash-lite": ("gemini-3.1-flash-lite",             0.3),
+    "gemini-2-5-pro":    ("gemini-3.1-pro-preview",            0.5),
 }
 
 _MODEL_INSTANCES = {}
@@ -116,10 +125,10 @@ MODEL_SKILLS = {
     "gemini3":          "Fast summarization, quick analysis (OpenRouter)",
     "claude":           "Orchestration, logic, long context",
     # Direct Gemini
-    "gemini-flash":     "Ultra-fast Gemini 2.5 — best for quick tasks",
+    "gemini-flash":     "Ultra-fast Gemini 3.6 — best for quick tasks",
     "gemini-pro":       "Balanced reasoning & coding",
-    "gemini-flash-lite":"Super cost-effective 2.0 lite",
-    "gemini-2-5-pro":   "Most capable Gemini 2.5 — advanced reasoning",
+    "gemini-flash-lite":"Super cost-effective 3.1 lite",
+    "gemini-2-5-pro":   "Most capable Gemini 3.1 — advanced reasoning",
 }
 
 ICONS = {
@@ -129,10 +138,10 @@ ICONS = {
     "gemini3":          "🟢 Gemini 3 Flash",
     "claude":           "🤖 Claude Sonnet",
     # Direct Gemini
-    "gemini-flash":     "⚡ Gemini 2.5 Flash",
-    "gemini-pro":       "🌐 Gemini 1.5 Pro",
-    "gemini-flash-lite":"💨 Gemini 2.0 Flash Lite",
-    "gemini-2-5-pro":   "✨ Gemini 2.5 Pro",
+    "gemini-flash":     "⚡ Gemini 3.6 Flash",
+    "gemini-pro":       "🌐 Gemini 3.1 Pro",
+    "gemini-flash-lite":"💨 Gemini 3.1 Flash Lite",
+    "gemini-2-5-pro":   "✨ Gemini 3.1 Pro",
 }
 
 MODEL_DISPLAY = {
@@ -142,10 +151,13 @@ MODEL_DISPLAY = {
     "google/gemini-3-flash-preview":     "🟢 Gemini 3 Flash",
     "anthropic/claude-sonnet-4-6":       "🤖 Claude Sonnet",
     # Direct Gemini
-    "gemini-2.5-flash":                  "⚡ Gemini 2.5 Flash",
+    "gemini-3.6-flash":                  "⚡ Gemini 3.6 Flash",
+    "gemini-2.5-flash":                  "⚡ Gemini 3.6 Flash",
+    "gemini-3.1-pro-preview":            "🌐 Gemini 3.1 Pro",
     "gemini-1.5-pro":                    "🌐 Gemini 1.5 Pro",
+    "gemini-3.1-flash-lite":             "💨 Gemini 3.1 Flash Lite",
     "gemini-2.0-flash-lite":             "💨 Gemini 2.0 Flash Lite",
-    "gemini-2.5-pro":                    "✨ Gemini 2.5 Pro",
+    "gemini-2.5-pro":                    "✨ Gemini 3.1 Pro",
 }
 
 # ── Tech stack routing ────────────────────────────────────

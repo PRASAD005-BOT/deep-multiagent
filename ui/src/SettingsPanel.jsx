@@ -191,7 +191,7 @@ const SettingsPanel = ({ isMobile }) => {
                                     </div>
                                     <div className="min-w-0">
                                         <h3 className="font-bold text-lg text-text-main">Google Gemini</h3>
-                                        <p className="text-xs text-text-muted font-medium">Direct Gemini API — Gemini 2.5 Flash, 1.5 Pro & more</p>
+                                        <p className="text-xs text-text-muted font-medium">Direct Gemini API — Gemini 3.6 Flash, 3.1 Pro & more</p>
                                     </div>
                                 </div>
 
@@ -199,10 +199,10 @@ const SettingsPanel = ({ isMobile }) => {
                                     {/* Model chips */}
                                     <div className="flex flex-wrap gap-2">
                                         {[
-                                            { label: 'Gemini 2.5 Flash', color: '#4285F4' },
-                                            { label: 'Gemini 1.5 Pro',   color: '#34A853' },
-                                            { label: 'Flash Lite 2.0',   color: '#FBBC05' },
-                                            { label: 'Gemini 2.5 Pro',   color: '#EA4335' },
+                                            { label: 'Gemini 3.6 Flash', color: '#4285F4' },
+                                            { label: 'Gemini 3.1 Pro',   color: '#34A853' },
+                                            { label: 'Flash Lite 3.1',   color: '#FBBC05' },
+                                            { label: 'Gemini 3.7 Flash', color: '#EA4335' },
                                         ].map(m => (
                                             <span key={m.label}
                                                 className="text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border"

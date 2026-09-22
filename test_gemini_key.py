@@ -5,19 +5,24 @@ Tests your Google Gemini API key using the OpenAI-compatible endpoint.
 Run:  python test_gemini_key.py
 """
 
+import os
+import sys
 import requests
 import json
 
-# ── PASTE YOUR KEY HERE ───────────────────────────────────
-API_KEY = "AIzaSyDgbCiJnNVjMXJUAAfMAFh_RDEYirYrU-c"
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+# ── PASTE YOUR KEY HERE OR SET GEMINI_API_KEY ─────────────
+API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyDgbCiJnNVjMXJUAAfMAFh_RDEYirYrU-c")
 # ─────────────────────────────────────────────────────────
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 
 MODELS_TO_TEST = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-pro",
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro-preview",
 ]
 
 def test_key(api_key: str):

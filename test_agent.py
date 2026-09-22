@@ -2,7 +2,8 @@ import os
 import sys
 import traceback
 
-os.environ['GEMINI_API_KEY'] = 'AIzaSyBhEv4ysJ1MeA0cepQFNjSErcRJ-UoferE'
+if not os.environ.get('GEMINI_API_KEY'):
+    os.environ['GEMINI_API_KEY'] = 'AIzaSyBhEv4ysJ1MeA0cepQFNjSErcRJ-UoferE'
 
 from models import get_gemini_model
 from langchain_core.tools import tool
@@ -16,13 +17,15 @@ def create_project(project_name: str) -> str:
     return '[OK]'
 
 try:
-    llm = get_gemini_model('gemini-2.5-flash')
+    llm = get_gemini_model('gemini-3.6-flash')
     
-    # Try using system_prompt instead of state_modifier if state_modifier throws error
     try:
-        agent = create_react_agent(llm, tools=[create_project], state_modifier='You must always call the create_project tool when asked.')
+        agent = create_react_agent(llm, tools=[create_project], prompt='You must always call the create_project tool when asked.')
     except TypeError:
-        agent = create_react_agent(llm, tools=[create_project], messages_modifier='You must always call the create_project tool when asked.')
+        try:
+            agent = create_react_agent(llm, tools=[create_project], state_modifier='You must always call the create_project tool when asked.')
+        except TypeError:
+            agent = create_react_agent(llm, tools=[create_project], messages_modifier='You must always call the create_project tool when asked.')
         
     res = agent.invoke({'messages': [HumanMessage(content='Please create a project named ipl-2026.')]})
     for m in res['messages']:
