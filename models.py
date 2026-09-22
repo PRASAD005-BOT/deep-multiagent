@@ -26,15 +26,7 @@ def get_gemini_model(model_name: str, temperature: float = 0.5, api_key: str = N
     if not api_key:
         api_key = get_gemini_key()
 
-    MODEL_ALIASES = {
-        "gemini-2.5-flash": "gemini-3.6-flash",
-        "models/gemini-2.5-flash": "gemini-3.6-flash",
-        "gemini-2.5-pro": "gemini-3.1-pro-preview",
-        "models/gemini-2.5-pro": "gemini-3.1-pro-preview",
-        "gemini-2.0-flash-lite": "gemini-3.1-flash-lite",
-        "models/gemini-2.0-flash-lite": "gemini-3.1-flash-lite",
-    }
-    model_name = MODEL_ALIASES.get(model_name, model_name)
+
     
     return ChatOpenAI(
         model=model_name,
